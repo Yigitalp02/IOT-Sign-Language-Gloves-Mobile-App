@@ -1,9 +1,9 @@
 {
     "app": {
         "title": "IoT İşaret Dili",
-        "subtitle": "Metin Okuma Demosu",
-        "footer": "Bu demo işletim sisteminizin yerel metin okuma motorunu kullanır. İnternet bağlantısı gerektirmez.",
-        "version": "Sürüm 0.1.0 | Bilgisayar Mühendisliği Bitirme Projesi | Yiğit Alp Bilgin"
+        "subtitle": "ASL Tanıma Sistemi",
+        "footer": "Makine öğrenimi ve sensör eldiven teknolojisi ile gerçek zamanlı Amerikan İşaret Dili tanıma.",
+        "version": "Sürüm 1.0.0 | Bilgisayar Mühendisliği Bitirme Projesi | Yiğit Alp Bilgin"
     },
     "input": {
         "label": "Konuşulacak metni girin:",
@@ -12,15 +12,45 @@
     "buttons": {
         "speak_tr": "Konuş (Türkçe)",
         "speak_en": "Konuş (İngilizce)",
-        "connect": "Bağlan",
+        "connect": "Eldiveni Bağla",
         "disconnect": "Bağlantıyı Kes",
-        "scan": "Tara"
+        "scan": "Tara",
+        "stop": "Durdur"
     },
     "connection": {
-        "title": "Cihaz Bağlantısı",
+        "title": "Eldiven Bağlantısı",
         "connected": "Bağlı",
         "disconnected": "Bağlantı Yok",
-        "no_ports": "Port bulunamadı"
+        "no_ports": "Cihaz bulunamadı",
+        "note": "Fiziksel eldiven geldiğinde Bluetooth etkinleştirilecek",
+        "permission_denied_title": "İzinler Gerekli",
+        "permission_denied_message": "Cihazları taramak için Bluetooth ve konum izinleri gereklidir.",
+        "bluetooth_off_title": "Bluetooth Kapalı",
+        "bluetooth_off_message": "Cihazları taramak için lütfen Bluetooth'u etkinleştirin.",
+        "connected_title": "Cihaz Bağlandı",
+        "connected_message": "{{name}} cihazına başarıyla bağlanıldı",
+        "disconnected_title": "Cihaz Bağlantısı Kesildi",
+        "disconnected_message": "Eldiven bağlantısı başarıyla kesildi",
+        "error_title": "Bağlantı Hatası",
+        "error_message": "Cihaza bağlanılamadı. Lütfen tekrar deneyin."
+    },
+    "simulator": {
+        "title": "ASL Simülatörü",
+        "description": "Sensör verisi simüle etmek için bir harf seçin",
+        "simulating": "Simüle ediliyor"
+    },
+    "prediction": {
+        "analyzing": "Analiz ediliyor",
+        "waiting": "Sensör verisi bekleniyor...",
+        "confidence": "Güven",
+        "samples": "Örnek",
+        "time": "Süre",
+        "model": "Model"
+    },
+    "history": {
+        "title": "Son Tahminler",
+        "empty": "Henüz tahmin yok",
+        "count": "{{count}} tahmin"
     },
     "settings": {
         "theme": "Tema",

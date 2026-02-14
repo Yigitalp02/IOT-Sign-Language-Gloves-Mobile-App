@@ -1,39 +1,117 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, SafeAreaView, Platform, StatusBar as RNStatusBar } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Speech from 'expo-speech';
-import './src/i18n/i18n'; // Initialize i18n
+import * as Haptics from 'expo-haptics';
+import './src/i18n/i18n';
 import { useTranslation } from 'react-i18next';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import ConnectionManager from './src/components/ConnectionManager';
+import SimulatorControl from './src/components/SimulatorControl';
+import PredictionView from './src/components/PredictionView';
+import PredictionHistory from './src/components/PredictionHistory';
 import Dropdown from './src/components/Dropdown';
+import apiService, { PredictionResponse } from './src/services/apiService';
+
+interface PredictionRecord {
+  letter: string;
+  confidence: number;
+  timestamp: number;
+}
 
 function AppContent() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme, colors, isDark } = useTheme();
-  const [text, setText] = useState('Hello professor, text-to-speech demo is ready.');
-  const [statusMessage, setStatusMessage] = useState('');
+  
+  // Text-to-Speech state
+  const [text, setText] = useState('');
+  const [ttsStatus, setTtsStatus] = useState('');
 
-  React.useEffect(() => {
-    const listVoices = async () => {
-      const voices = await Speech.getAvailableVoicesAsync();
-      console.log('Available Voices:', voices.map(v => `${v.name} (${v.language})`));
-    };
-    listVoices();
+  // Prediction state
+  const [sensorBuffer, setSensorBuffer] = useState<number[][]>([]);
+  const [currentPrediction, setCurrentPrediction] = useState<PredictionResponse | null>(null);
+  const [predictionError, setPredictionError] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [predictionHistory, setPredictionHistory] = useState<PredictionRecord[]>([]);
+  
+  // Simulator state
+  const [isSimulating, setIsSimulating] = useState(false);
+  
+  // Connection state
+  const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
+
+  // Handle sensor data from simulator or real device
+  const handleSensorData = useCallback((data: number[]) => {
+    setSensorBuffer(prev => {
+      const newBuffer = [...prev, data];
+      
+      // When we have 200 samples, make prediction
+      if (newBuffer.length >= 200) {
+        makePrediction(newBuffer);
+        return [];
+      }
+      
+      return newBuffer;
+    });
   }, []);
+
+  const makePrediction = async (samples: number[][]) => {
+    setIsAnalyzing(true);
+    setPredictionError(null);
+
+    try {
+      const response = await apiService.predict({
+        flex_sensors: samples,
+        device_id: connectedDevice || 'mobile-simulator',
+      });
+
+      setCurrentPrediction(response);
+      
+      // Add to history
+      setPredictionHistory(prev => [
+        {
+          letter: response.letter,
+          confidence: response.confidence,
+          timestamp: response.timestamp,
+        },
+        ...prev.slice(0, 19), // Keep last 20
+      ]);
+
+      // Haptic feedback
+      if (response.confidence >= 0.8) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else if (response.confidence >= 0.6) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } else {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+
+      // Speak the letter
+      Speech.speak(response.letter, {
+        language: 'en-US',
+        rate: 0.8,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Prediction failed';
+      setPredictionError(errorMessage);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const handleSpeak = (language: string) => {
     if (!text.trim()) {
-      setStatusMessage(t('status.error_empty'));
+      setTtsStatus(t('status.error_empty'));
       return;
     }
 
-    setStatusMessage(language === 'tr-TR' ? t('status.speaking_tr') : t('status.speaking_en'));
+    setTtsStatus(language === 'tr-TR' ? t('status.speaking_tr') : t('status.speaking_en'));
 
     Speech.speak(text, {
       language,
-      onDone: () => setStatusMessage(language === 'tr-TR' ? t('status.success_tr') : t('status.success_en')),
-      onError: (e) => setStatusMessage(`Error: ${e}`),
+      onDone: () => setTtsStatus(language === 'tr-TR' ? t('status.success_tr') : t('status.success_en')),
+      onError: (e) => setTtsStatus(`Error: ${e}`),
     });
   };
 
@@ -41,17 +119,14 @@ function AppContent() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bgPrimary }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Header */}
           <View style={styles.header}>
             <Text style={[styles.title, { color: 'transparent' }]}>
               <Text style={{ color: colors.accentPrimary }}>IoT </Text>
               <Text style={{ color: colors.accentSecondary }}>Sign Language</Text>
             </Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t('app.subtitle')}</Text>
-
-
-
-            // ... inside AppContent component ...
 
             <View style={styles.settingsRow}>
               <Dropdown
@@ -77,8 +152,39 @@ function AppContent() {
             </View>
           </View>
 
-          <View style={[styles.content, { backgroundColor: colors.bgCard, borderColor: colors.borderColor, shadowColor: colors.shadowColor }]}>
-            <ConnectionManager />
+          {/* ASL Recognition Section */}
+          <View style={[styles.section, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              🤖 ASL Recognition
+            </Text>
+
+            <ConnectionManager
+              onDeviceConnected={setConnectedDevice}
+              onDeviceDisconnected={() => setConnectedDevice(null)}
+              onDataReceived={handleSensorData}
+            />
+
+            <SimulatorControl
+              onSensorData={handleSensorData}
+              isSimulating={isSimulating}
+              setIsSimulating={setIsSimulating}
+            />
+
+            <PredictionView
+              prediction={currentPrediction}
+              isLoading={isAnalyzing}
+              error={predictionError}
+              sampleCount={sensorBuffer.length}
+            />
+
+            <PredictionHistory history={predictionHistory} />
+          </View>
+
+          {/* Text-to-Speech Section */}
+          <View style={[styles.section, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              🔊 Text-to-Speech
+            </Text>
 
             <View style={styles.inputSection}>
               <Text style={[styles.label, { color: colors.textPrimary }]}>{t('input.label')}</Text>
@@ -109,13 +215,14 @@ function AppContent() {
               </TouchableOpacity>
             </View>
 
-            {!!statusMessage && (
+            {!!ttsStatus && (
               <View style={[styles.statusMessage, { backgroundColor: colors.statusBg, borderColor: colors.borderColor }]}>
-                <Text style={{ color: colors.textPrimary, textAlign: 'center' }}>{statusMessage}</Text>
+                <Text style={{ color: colors.textPrimary, textAlign: 'center' }}>{ttsStatus}</Text>
               </View>
             )}
           </View>
 
+          {/* Footer */}
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: colors.textSecondary }]}>{t('app.footer')}</Text>
             <Text style={[styles.versionText, { color: colors.textSecondary }]}>{t('app.version')}</Text>
@@ -144,7 +251,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    flexGrow: 1,
+    paddingBottom: 32,
   },
   header: {
     alignItems: 'center',
@@ -163,21 +270,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 16,
     marginTop: 16,
-    zIndex: 10, // Ensure dropdowns appear on top
+    zIndex: 10,
   },
-  content: {
-    padding: 24,
+  section: {
+    padding: 20,
     borderRadius: 20,
     borderWidth: 1,
-    shadowOffset: { width: 0, height: 10 },
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
-    marginBottom: 24,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
   },
   inputSection: {
     gap: 8,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   label: {
     fontSize: 14,
@@ -194,7 +307,7 @@ const styles = StyleSheet.create({
   buttonGroup: {
     flexDirection: 'row',
     gap: 12,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   button: {
     flex: 1,
@@ -225,6 +338,7 @@ const styles = StyleSheet.create({
   footer: {
     alignItems: 'center',
     gap: 8,
+    marginTop: 16,
   },
   footerText: {
     fontSize: 12,

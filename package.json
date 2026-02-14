@@ -1,22 +1,26 @@
 {
-  "name": "mobile",
+  "name": "iot-sign-language-mobile",
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "build:apk": "cd android && .\\gradlew assembleRelease"
   },
   "dependencies": {
+    "axios": "^1.13.5",
     "expo": "~54.0.25",
+    "expo-haptics": "^15.0.8",
     "expo-localization": "~17.0.7",
     "expo-speech": "~14.0.7",
     "expo-status-bar": "~3.0.8",
     "i18next": "^25.6.3",
     "react": "19.1.0",
     "react-i18next": "^16.3.5",
-    "react-native": "0.81.5"
+    "react-native": "0.81.5",
+    "react-native-ble-plx": "^3.5.0"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
