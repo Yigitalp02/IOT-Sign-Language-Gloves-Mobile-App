@@ -10,6 +10,7 @@ import ConnectionManager from './src/components/ConnectionManager';
 import SimulatorControl from './src/components/SimulatorControl';
 import PredictionView from './src/components/PredictionView';
 import PredictionHistory from './src/components/PredictionHistory';
+import DebugLog from './src/components/DebugLog';
 import Dropdown from './src/components/Dropdown';
 import apiService, { PredictionResponse } from './src/services/apiService';
 
@@ -17,6 +18,18 @@ interface PredictionRecord {
   letter: string;
   confidence: number;
   timestamp: number;
+}
+
+interface DebugLogData {
+  simulationStartTime?: number;
+  simulationEndTime?: number;
+  firstSample?: number[];
+  lastSample?: number[];
+  totalSamples?: number;
+  apiCallTime?: number;
+  apiResponseTime?: number;
+  apiResponse?: PredictionResponse;
+  error?: string;
 }
 
 function AppContent() {
@@ -29,10 +42,17 @@ function AppContent() {
 
   // Prediction state
   const [sensorBuffer, setSensorBuffer] = useState<number[][]>([]);
+  const isCollectingRef = React.useRef(true);
+  const [lastSampleCount, setLastSampleCount] = useState(0);
   const [currentPrediction, setCurrentPrediction] = useState<PredictionResponse | null>(null);
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [predictionHistory, setPredictionHistory] = useState<PredictionRecord[]>([]);
+  
+  // Debug state
+  const [debugLogData, setDebugLogData] = useState<DebugLogData | null>(null);
+  const [isDebugVisible, setIsDebugVisible] = useState(true);
+  const simulationStartTimeRef = React.useRef<number>(0);
   
   // Simulator state
   const [isSimulating, setIsSimulating] = useState(false);
@@ -40,24 +60,31 @@ function AppContent() {
   // Connection state
   const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
 
-  // Handle sensor data from simulator or real device
-  const handleSensorData = useCallback((data: number[]) => {
-    setSensorBuffer(prev => {
-      const newBuffer = [...prev, data];
-      
-      // When we have 200 samples, make prediction
-      if (newBuffer.length >= 200) {
-        makePrediction(newBuffer);
-        return [];
-      }
-      
-      return newBuffer;
-    });
-  }, []);
+  // Reset collecting flag when starting simulation
+  React.useEffect(() => {
+    if (isSimulating) {
+      isCollectingRef.current = true;
+      simulationStartTimeRef.current = Date.now();
+    }
+  }, [isSimulating]);
 
-  const makePrediction = async (samples: number[][]) => {
+  const makePrediction = useCallback(async (samples: number[][]) => {
+    const simulationEndTime = Date.now();
+    const apiCallTime = Date.now();
+    
+    console.log(`Making prediction with ${samples.length} samples`);
     setIsAnalyzing(true);
     setPredictionError(null);
+
+    // Prepare debug data
+    const debugData: DebugLogData = {
+      simulationStartTime: simulationStartTimeRef.current,
+      simulationEndTime,
+      firstSample: samples[0],
+      lastSample: samples[samples.length - 1],
+      totalSamples: samples.length,
+      apiCallTime,
+    };
 
     try {
       const response = await apiService.predict({
@@ -65,7 +92,12 @@ function AppContent() {
         device_id: connectedDevice || 'mobile-simulator',
       });
 
+      const apiResponseTime = Date.now();
+      debugData.apiResponseTime = apiResponseTime;
+      debugData.apiResponse = response;
+
       setCurrentPrediction(response);
+      setDebugLogData(debugData);
       
       // Add to history
       setPredictionHistory(prev => [
@@ -94,11 +126,54 @@ function AppContent() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Prediction failed';
       setPredictionError(errorMessage);
+      debugData.error = errorMessage;
+      setDebugLogData(debugData);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsAnalyzing(false);
     }
-  };
+  }, [connectedDevice]);
+
+  // Use ref to avoid recreating callbacks
+  const makePredictionRef = React.useRef(makePrediction);
+  React.useEffect(() => {
+    makePredictionRef.current = makePrediction;
+  }, [makePrediction]);
+
+  // Handle sensor data from simulator or real device
+  const handleSensorData = useCallback((data: number[]) => {
+    // Check if we should still be collecting (BEFORE setState!)
+    if (!isCollectingRef.current) {
+      console.log('Ignoring sample - collection stopped');
+      return;
+    }
+
+    setSensorBuffer(prev => {
+      // Double-check inside setState too
+      if (!isCollectingRef.current) {
+        console.log('Ignoring sample - collection stopped (inside setState)');
+        return prev;
+      }
+
+      const newBuffer = [...prev, data];
+      console.log(`Buffer now has ${newBuffer.length} samples`);
+      
+      // When we have 200 samples, make prediction
+      if (newBuffer.length >= 200) {
+        console.log('Triggering prediction with 200 samples');
+        isCollectingRef.current = false; // Stop collecting immediately!
+        setIsSimulating(false); // Update UI
+        setLastSampleCount(newBuffer.length); // Save count for display
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        
+        // Make prediction on next tick to avoid race conditions
+        setTimeout(() => makePredictionRef.current(newBuffer), 0);
+        return [];
+      }
+      
+      return newBuffer;
+    });
+  }, []); // Empty deps - function never changes!
 
   const handleSpeak = (language: string) => {
     if (!text.trim()) {
@@ -155,7 +230,7 @@ function AppContent() {
           {/* ASL Recognition Section */}
           <View style={[styles.section, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              🤖 ASL Recognition
+              ASL Recognition
             </Text>
 
             <ConnectionManager
@@ -174,7 +249,13 @@ function AppContent() {
               prediction={currentPrediction}
               isLoading={isAnalyzing}
               error={predictionError}
-              sampleCount={sensorBuffer.length}
+              sampleCount={isAnalyzing || currentPrediction ? lastSampleCount : sensorBuffer.length}
+            />
+
+            <DebugLog
+              data={debugLogData}
+              isVisible={isDebugVisible}
+              onToggle={() => setIsDebugVisible(!isDebugVisible)}
             />
 
             <PredictionHistory history={predictionHistory} />
@@ -183,7 +264,7 @@ function AppContent() {
           {/* Text-to-Speech Section */}
           <View style={[styles.section, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              🔊 Text-to-Speech
+              Text-to-Speech
             </Text>
 
             <View style={styles.inputSection}>

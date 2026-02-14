@@ -39,7 +39,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
   if (error) {
     return (
       <View style={[styles.container, { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: '#ef4444' }]}>
-        <Text style={[styles.errorIcon, { color: '#ef4444' }]}>⚠</Text>
+        <Text style={[styles.errorIcon, { color: '#ef4444' }]}>!</Text>
         <Text style={[styles.errorText, { color: '#ef4444' }]}>{error}</Text>
       </View>
     );
@@ -49,7 +49,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
     return (
       <View style={[styles.container, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-          <Text style={[styles.loadingIcon, { color: colors.accentPrimary }]}>🔄</Text>
+          <Text style={[styles.loadingIcon, { color: colors.accentPrimary }]}>...</Text>
         </Animated.View>
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
           {t('prediction.analyzing')} ({sampleCount}/200)
@@ -61,7 +61,6 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
   if (!prediction) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
-        <Text style={[styles.placeholderIcon, { color: colors.textSecondary }]}>👋</Text>
         <Text style={[styles.placeholderText, { color: colors.textSecondary }]}>
           {t('prediction.waiting')}
         </Text>

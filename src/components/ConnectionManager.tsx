@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, PermissionsAndroid, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
-import { BleManager, Device } from 'react-native-ble-plx';
+// import { BleManager, Device } from 'react-native-ble-plx'; // Disabled until hardware arrives
 
 interface ConnectionManagerProps {
   onDeviceConnected?: (deviceId: string) => void;
@@ -19,123 +19,25 @@ export default function ConnectionManager({
   const { colors } = useTheme();
   const [isConnected, setIsConnected] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
-  const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
-  const [bleManager] = useState(() => new BleManager());
 
-  useEffect(() => {
-    requestPermissions();
-    return () => {
-      bleManager.destroy();
-    };
-  }, []);
-
-  const requestPermissions = async () => {
-    if (Platform.OS === 'android' && Platform.Version >= 23) {
-      try {
-        const granted = await PermissionsAndroid.requestMultiple([
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        ]);
-        
-        const allGranted = Object.values(granted).every(
-          status => status === PermissionsAndroid.RESULTS.GRANTED
-        );
-        
-        if (!allGranted) {
-          Alert.alert(
-            t('connection.permission_denied_title'),
-            t('connection.permission_denied_message')
-          );
-        }
-      } catch (error) {
-        console.error('Permission error:', error);
-      }
-    }
+  // Bluetooth functionality disabled until hardware arrives
+  const handleScan = () => {
+    Alert.alert(
+      t('connection.bluetooth_off_title'),
+      'Bluetooth will be enabled when physical glove arrives. Use simulator for now!'
+    );
   };
 
-  const handleScan = async () => {
-    setIsScanning(true);
-    
-    try {
-      const state = await bleManager.state();
-      if (state !== 'PoweredOn') {
-        Alert.alert(
-          t('connection.bluetooth_off_title'),
-          t('connection.bluetooth_off_message')
-        );
-        setIsScanning(false);
-        return;
-      }
-
-      // Scan for devices with "ASL" or "Glove" in name
-      bleManager.startDeviceScan(null, null, (error, device) => {
-        if (error) {
-          console.error('Scan error:', error);
-          setIsScanning(false);
-          return;
-        }
-
-        if (device?.name && (device.name.includes('ASL') || device.name.includes('Glove'))) {
-          bleManager.stopDeviceScan();
-          handleConnect(device);
-        }
-      });
-
-      // Stop scanning after 10 seconds
-      setTimeout(() => {
-        bleManager.stopDeviceScan();
-        setIsScanning(false);
-      }, 10000);
-    } catch (error) {
-      console.error('Scan initiation error:', error);
-      setIsScanning(false);
-    }
+  const handleConnect = () => {
+    Alert.alert(
+      t('connection.bluetooth_off_title'),
+      'Bluetooth will be enabled when physical glove arrives. Use simulator for now!'
+    );
   };
 
-  const handleConnect = async (device: Device) => {
-    try {
-      setIsScanning(false);
-      const connected = await device.connect();
-      await connected.discoverAllServicesAndCharacteristics();
-      
-      setConnectedDevice(connected);
-      setIsConnected(true);
-      onDeviceConnected?.(connected.id);
-
-      // TODO: Subscribe to characteristics when hardware is ready
-      // const services = await connected.services();
-      // Find sensor data characteristic and monitor it
-      
-      Alert.alert(
-        t('connection.connected_title'),
-        t('connection.connected_message', { name: device.name || 'ASL Glove' })
-      );
-    } catch (error) {
-      console.error('Connection error:', error);
-      Alert.alert(
-        t('connection.error_title'),
-        t('connection.error_message')
-      );
-    }
-  };
-
-  const handleDisconnect = async () => {
-    if (connectedDevice) {
-      try {
-        await connectedDevice.cancelConnection();
-        setConnectedDevice(null);
-        setIsConnected(false);
-        onDeviceDisconnected?.();
-        
-        Alert.alert(
-          t('connection.disconnected_title'),
-          t('connection.disconnected_message')
-        );
-      } catch (error) {
-        console.error('Disconnection error:', error);
-      }
-    }
+  const handleDisconnect = () => {
+    setIsConnected(false);
+    onDeviceDisconnected?.();
   };
 
   return (
@@ -158,11 +60,6 @@ export default function ConnectionManager({
         </View>
       </View>
 
-      {connectedDevice && (
-        <Text style={[styles.deviceName, { color: colors.textSecondary }]}>
-          {connectedDevice.name || connectedDevice.id}
-        </Text>
-      )}
 
       <View style={styles.controls}>
         <TouchableOpacity
