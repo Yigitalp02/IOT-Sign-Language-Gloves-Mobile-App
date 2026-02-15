@@ -11,6 +11,7 @@ import SimulatorControl from './src/components/SimulatorControl';
 import PredictionView from './src/components/PredictionView';
 import PredictionHistory from './src/components/PredictionHistory';
 import DebugLog from './src/components/DebugLog';
+import SensorDisplay from './src/components/SensorDisplay';
 import Dropdown from './src/components/Dropdown';
 import apiService, { PredictionResponse } from './src/services/apiService';
 
@@ -48,6 +49,9 @@ function AppContent() {
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [predictionHistory, setPredictionHistory] = useState<PredictionRecord[]>([]);
+  
+  // Real-time sensor display
+  const [currentSample, setCurrentSample] = useState<number[] | null>(null);
   
   // Debug state
   const [debugLogData, setDebugLogData] = useState<DebugLogData | null>(null);
@@ -243,6 +247,12 @@ function AppContent() {
               onSensorData={handleSensorData}
               isSimulating={isSimulating}
               setIsSimulating={setIsSimulating}
+              onCurrentSampleChange={setCurrentSample}
+            />
+
+            <SensorDisplay
+              currentSample={currentSample}
+              isActive={isSimulating || connectedDevice !== null}
             />
 
             <PredictionView

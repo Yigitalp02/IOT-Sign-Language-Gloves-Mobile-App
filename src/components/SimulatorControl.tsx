@@ -8,6 +8,7 @@ interface SimulatorControlProps {
   onSensorData: (data: number[]) => void;
   isSimulating: boolean;
   setIsSimulating: (value: boolean) => void;
+  onCurrentSampleChange?: (data: number[]) => void;
 }
 
 // ASL patterns for 15 distinguishable letters (calibrated for our sensor range)
@@ -40,7 +41,7 @@ const ASL_PATTERNS: Record<string, number[]> = {
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'K', 'O', 'S', 'T', 'V', 'W', 'X', 'Y'];
 
-export default function SimulatorControl({ onSensorData, isSimulating, setIsSimulating }: SimulatorControlProps) {
+export default function SimulatorControl({ onSensorData, isSimulating, setIsSimulating, onCurrentSampleChange }: SimulatorControlProps) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
@@ -59,11 +60,14 @@ export default function SimulatorControl({ onSensorData, isSimulating, setIsSimu
       );
 
       onSensorData(noisyData);
+      if (onCurrentSampleChange) {
+        onCurrentSampleChange(noisyData); // Send to real-time display
+      }
       setSampleCount(prev => prev + 1);
     }, 20); // 50Hz sampling
 
     return () => clearInterval(interval);
-  }, [isSimulating, selectedLetter, onSensorData]);
+  }, [isSimulating, selectedLetter, onSensorData, onCurrentSampleChange]);
 
   const handleLetterPress = async (letter: string) => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
