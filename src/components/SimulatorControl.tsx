@@ -9,6 +9,8 @@ interface SimulatorControlProps {
   isSimulating: boolean;
   setIsSimulating: (value: boolean) => void;
   onCurrentSampleChange?: (data: number[]) => void;
+  isContinuousMode?: boolean;
+  simulateLetterRef?: React.MutableRefObject<string | null>;
 }
 
 // ASL patterns for 15 distinguishable letters (calibrated for our sensor range)
@@ -41,11 +43,36 @@ const ASL_PATTERNS: Record<string, number[]> = {
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'K', 'O', 'S', 'T', 'V', 'W', 'X', 'Y'];
 
-export default function SimulatorControl({ onSensorData, isSimulating, setIsSimulating, onCurrentSampleChange }: SimulatorControlProps) {
+export default function SimulatorControl({ 
+  onSensorData, 
+  isSimulating, 
+  setIsSimulating, 
+  onCurrentSampleChange, 
+  isContinuousMode = false,
+  simulateLetterRef 
+}: SimulatorControlProps) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [sampleCount, setSampleCount] = useState(0);
+
+  // Watch for programmatic letter simulation from QuickDemo
+  React.useEffect(() => {
+    if (simulateLetterRef && simulateLetterRef.current) {
+      const letter = simulateLetterRef.current;
+      console.log(`[SimulatorControl] Programmatic trigger for letter: ${letter}`);
+      simulateLetterRef.current = null; // Clear the ref immediately
+      
+      // Stop any existing simulation first
+      if (isSimulating && selectedLetter !== letter) {
+        console.log(`[SimulatorControl] Switching from ${selectedLetter} to ${letter}`);
+      }
+      
+      setSelectedLetter(letter);
+      setSampleCount(0);
+      // Don't set isSimulating here - it's already set by the parent
+    }
+  }, [simulateLetterRef?.current]);
 
   useEffect(() => {
     if (!isSimulating || !selectedLetter) return;
@@ -103,7 +130,10 @@ export default function SimulatorControl({ onSensorData, isSimulating, setIsSimu
       {isSimulating && selectedLetter && (
         <View style={[styles.status, { backgroundColor: colors.accentPrimary + '20', borderColor: colors.accentPrimary }]}>
           <Text style={[styles.statusText, { color: colors.accentPrimary }]}>
-            {t('simulator.simulating')}: {selectedLetter} ({sampleCount}/200)
+            {isContinuousMode 
+              ? `${t('simulator.simulating')}: ${selectedLetter} (continuous mode)`
+              : `${t('simulator.simulating')}: ${selectedLetter} (${sampleCount}/200)`
+            }
           </Text>
         </View>
       )}

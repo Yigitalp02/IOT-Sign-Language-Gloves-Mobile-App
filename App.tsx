@@ -12,6 +12,7 @@ import PredictionView from './src/components/PredictionView';
 import PredictionHistory from './src/components/PredictionHistory';
 import DebugLog from './src/components/DebugLog';
 import SensorDisplay from './src/components/SensorDisplay';
+import QuickDemo from './src/components/QuickDemo';
 import Dropdown from './src/components/Dropdown';
 import apiService, { PredictionResponse } from './src/services/apiService';
 
@@ -64,6 +65,34 @@ function AppContent() {
   // Connection state
   const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
 
+  // Word building state
+  const [detectedLetters, setDetectedLetters] = useState<string[]>([]);
+  const [isContinuousMode, setIsContinuousMode] = useState(false);
+  const [minConfidence, setMinConfidence] = useState(0.6); // Threshold for auto-accept
+
+  // QuickDemo control - notify when prediction completes
+  const quickDemoCallbackRef = React.useRef<(() => void) | null>(null);
+
+  // Handler to programmatically trigger letter simulation
+  const simulateLetter = useCallback((letter: string) => {
+    // Make sure we're in continuous mode
+    if (!isContinuousMode) {
+      setIsContinuousMode(true);
+    }
+    
+    // Start simulation
+    setIsSimulating(true);
+    setCurrentSample(null);
+    setSensorBuffer([]);
+    isCollectingRef.current = true;
+    simulationStartTimeRef.current = Date.now();
+    
+    // Trigger the simulator component by updating a ref
+    simulateLetterRef.current = letter;
+  }, [isContinuousMode]);
+
+  const simulateLetterRef = React.useRef<string | null>(null);
+
   // Reset collecting flag when starting simulation
   React.useEffect(() => {
     if (isSimulating) {
@@ -71,6 +100,74 @@ function AppContent() {
       simulationStartTimeRef.current = Date.now();
     }
   }, [isSimulating]);
+
+  // Track last sample time for idle detection in continuous mode
+  const lastSampleTimeRef = React.useRef<number>(Date.now());
+  const idleTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-restart collection in continuous mode (ONLY if simulator is still running manually, NOT for QuickDemo)
+  React.useEffect(() => {
+    // Don't auto-restart if QuickDemo is in control!
+    if (quickDemoCallbackRef.current) {
+      console.log('[Continuous mode] QuickDemo is in control, skipping auto-restart');
+      return;
+    }
+    
+    // Don't auto-restart if we just finished a prediction - let the simulator keep running
+    // This effect should only fire when we're in continuous mode and ready for the next cycle
+    if (isContinuousMode && !isCollectingRef.current && !isAnalyzing && isSimulating) {
+      // Wait a bit, then restart collection (only if simulator is still running)
+      const timer = setTimeout(() => {
+        // Double-check simulator is still running (user didn't stop it) AND QuickDemo isn't running
+        if (isSimulating && !quickDemoCallbackRef.current) {
+          console.log('[Continuous mode] Restarting collection for next letter');
+          isCollectingRef.current = true;
+          setSensorBuffer([]);
+          simulationStartTimeRef.current = Date.now();
+          lastSampleTimeRef.current = Date.now(); // Reset idle timer
+        } else {
+          console.log('[Continuous mode] Simulator stopped or QuickDemo active, not restarting');
+        }
+      }, 500); // 0.5s pause between predictions
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isContinuousMode, isAnalyzing, isSimulating]);
+
+  // Idle detection: If no samples for 2 seconds in continuous mode, finalize the word
+  React.useEffect(() => {
+    if (isContinuousMode && isSimulating && detectedLetters.length > 0) {
+      // Clear existing idle timer
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+      }
+
+      // Set a new idle timer
+      idleTimerRef.current = setTimeout(() => {
+        const timeSinceLastSample = Date.now() - lastSampleTimeRef.current;
+        if (timeSinceLastSample >= 2000) {
+          console.log('[Continuous mode] No samples for 2s - finalizing word');
+          handleStopSimulation();
+          
+          // Speak the complete word
+          const finalWord = detectedLetters.join('');
+          if (finalWord.length > 0) {
+            Speech.speak(finalWord, {
+              language: 'en-US',
+              rate: 0.8,
+            });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        }
+      }, 2500); // Check 2.5 seconds after last sample
+    }
+
+    return () => {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+      }
+    };
+  }, [isContinuousMode, isSimulating, detectedLetters]);
 
   const makePrediction = useCallback(async (samples: number[][]) => {
     const simulationEndTime = Date.now();
@@ -113,6 +210,33 @@ function AppContent() {
         ...prev.slice(0, 19), // Keep last 20
       ]);
 
+      // Auto-add to word builder in continuous mode
+      // For QuickDemo: ALWAYS add (regardless of confidence) for demo purposes
+      // For manual continuous: Only add if confidence >= threshold
+      const isQuickDemoRunning = quickDemoCallbackRef.current !== null; // Check BEFORE clearing!
+      console.log(`[App] Continuous mode: ${isContinuousMode}, QuickDemo: ${isQuickDemoRunning}, Confidence: ${Math.round(response.confidence * 100)}%`);
+      if (isContinuousMode) {
+        if (isQuickDemoRunning || response.confidence >= minConfidence) {
+          setDetectedLetters(prev => {
+            const newLetters = [...prev, response.letter];
+            console.log(`[App] Added letter "${response.letter}" to word. Current word: "${newLetters.join('')}"`);
+            return newLetters;
+          });
+        } else {
+          console.log(`[App] Skipping letter "${response.letter}" - confidence ${Math.round(response.confidence * 100)}% < ${Math.round(minConfidence * 100)}%`);
+        }
+      } else {
+        console.log(`[App] NOT in continuous mode, letter will NOT be added to word`);
+      }
+
+      // Notify QuickDemo that prediction is complete (if waiting)
+      if (quickDemoCallbackRef.current) {
+        console.log('[App] Notifying QuickDemo that prediction is complete');
+        const callback = quickDemoCallbackRef.current;
+        quickDemoCallbackRef.current = null; // Clear it AFTER checking
+        callback(); // Trigger next letter
+      }
+
       // Haptic feedback
       if (response.confidence >= 0.8) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -122,11 +246,13 @@ function AppContent() {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
 
-      // Speak the letter
-      Speech.speak(response.letter, {
-        language: 'en-US',
-        rate: 0.8,
-      });
+      // Only speak letter in SINGLE LETTER mode, NOT in continuous mode
+      if (!isContinuousMode) {
+        Speech.speak(response.letter, {
+          language: 'en-US',
+          rate: 0.8,
+        });
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Prediction failed';
       setPredictionError(errorMessage);
@@ -136,7 +262,7 @@ function AppContent() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [connectedDevice]);
+  }, [connectedDevice, isContinuousMode, minConfidence]); // ADD isContinuousMode!
 
   // Use ref to avoid recreating callbacks
   const makePredictionRef = React.useRef(makePrediction);
@@ -146,6 +272,9 @@ function AppContent() {
 
   // Handle sensor data from simulator or real device
   const handleSensorData = useCallback((data: number[]) => {
+    // Update last sample time for idle detection
+    lastSampleTimeRef.current = Date.now();
+    
     // Check if we should still be collecting (BEFORE setState!)
     if (!isCollectingRef.current) {
       console.log('Ignoring sample - collection stopped');
@@ -162,11 +291,16 @@ function AppContent() {
       const newBuffer = [...prev, data];
       console.log(`Buffer now has ${newBuffer.length} samples`);
       
-      // When we have 200 samples, make prediction
-      if (newBuffer.length >= 200) {
-        console.log('Triggering prediction with 200 samples');
+      // When we have 100 samples (2 seconds at 50Hz) in continuous mode, or 200 in single mode
+      const targetSamples = isContinuousMode ? 100 : 200;
+      console.log(`Target samples: ${targetSamples} (continuous mode: ${isContinuousMode})`);
+      
+      if (newBuffer.length >= targetSamples) {
+        console.log(`Triggering prediction with ${newBuffer.length} samples`);
         isCollectingRef.current = false; // Stop collecting immediately!
-        setIsSimulating(false); // Update UI
+        if (!isContinuousMode) {
+          setIsSimulating(false); // Only stop UI in manual mode
+        }
         setLastSampleCount(newBuffer.length); // Save count for display
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         
@@ -177,7 +311,7 @@ function AppContent() {
       
       return newBuffer;
     });
-  }, []); // Empty deps - function never changes!
+  }, [isContinuousMode]); // ADD isContinuousMode to dependencies!
 
   const handleSpeak = (language: string) => {
     if (!text.trim()) {
@@ -192,6 +326,12 @@ function AppContent() {
       onDone: () => setTtsStatus(language === 'tr-TR' ? t('status.success_tr') : t('status.success_en')),
       onError: (e) => setTtsStatus(`Error: ${e}`),
     });
+  };
+
+  const handleStopSimulation = () => {
+    setIsSimulating(false);
+    isCollectingRef.current = false;
+    setSensorBuffer([]);
   };
 
   return (
@@ -237,6 +377,70 @@ function AppContent() {
               ASL Recognition
             </Text>
 
+            {/* Mode Selector */}
+            <View style={[styles.modeSelector, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
+              <Text style={[styles.modeLabel, { color: colors.textPrimary }]}>
+                Recognition Mode:
+              </Text>
+              <View style={styles.modeButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.modeButton,
+                    !isContinuousMode && { backgroundColor: colors.accentPrimary },
+                    { borderColor: colors.borderColor }
+                  ]}
+                  onPress={() => {
+                    setIsContinuousMode(false);
+                    setIsSimulating(false);
+                    isCollectingRef.current = false;
+                    setSensorBuffer([]);
+                  }}
+                >
+                  <Text style={[styles.modeButtonText, { color: !isContinuousMode ? colors.accentText : colors.textSecondary }]}>
+                    Single Letter
+                  </Text>
+                  <Text style={[styles.modeDescription, { color: !isContinuousMode ? colors.accentText : colors.textSecondary }]}>
+                    200 samples (4s)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modeButton,
+                    isContinuousMode && { backgroundColor: colors.accentPrimary },
+                    { borderColor: colors.borderColor }
+                  ]}
+                  onPress={() => {
+                    setIsContinuousMode(true);
+                    setSensorBuffer([]);
+                    isCollectingRef.current = true;
+                  }}
+                >
+                  <Text style={[styles.modeButtonText, { color: isContinuousMode ? colors.accentText : colors.textSecondary }]}>
+                    Continuous Words
+                  </Text>
+                  <Text style={[styles.modeDescription, { color: isContinuousMode ? colors.accentText : colors.textSecondary }]}>
+                    100 samples (2s)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Quick Demo (only in continuous mode) */}
+            {isContinuousMode && (
+              <QuickDemo
+                onSimulateLetter={simulateLetter}
+                isActive={isSimulating}
+                onStopSimulator={() => {
+                  console.log('[App] Stopping simulator after QuickDemo');
+                  setIsSimulating(false);
+                  isCollectingRef.current = false;
+                }}
+                quickDemoCallbackRef={quickDemoCallbackRef}
+                detectedWord={detectedLetters.join('')}
+              />
+            )}
+
             <ConnectionManager
               onDeviceConnected={setConnectedDevice}
               onDeviceDisconnected={() => setConnectedDevice(null)}
@@ -248,6 +452,8 @@ function AppContent() {
               isSimulating={isSimulating}
               setIsSimulating={setIsSimulating}
               onCurrentSampleChange={setCurrentSample}
+              isContinuousMode={isContinuousMode}
+              simulateLetterRef={simulateLetterRef}
             />
 
             <SensorDisplay
@@ -260,7 +466,18 @@ function AppContent() {
               isLoading={isAnalyzing}
               error={predictionError}
               sampleCount={isAnalyzing || currentPrediction ? lastSampleCount : sensorBuffer.length}
+              isContinuousMode={isContinuousMode}
+              currentWord={detectedLetters.join('')}
+              onClearWord={() => setDetectedLetters([])}
+              onDeleteLetter={() => setDetectedLetters(prev => prev.slice(0, -1))}
             />
+            
+            {/* DEBUG: Show what's being passed to PredictionView */}
+            {__DEV__ && (
+              <Text style={{ fontSize: 10, color: 'gray', padding: 8 }}>
+                DEBUG: isContinuousMode={isContinuousMode ? 'true' : 'false'}, word="{detectedLetters.join('')}" ({detectedLetters.length} letters)
+              </Text>
+            )}
 
             <DebugLog
               data={debugLogData}
@@ -438,5 +655,35 @@ const styles = StyleSheet.create({
   versionText: {
     fontSize: 10,
     opacity: 0.7,
+  },
+  modeSelector: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  modeLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  modeButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  modeButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  modeButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  modeDescription: {
+    fontSize: 10,
   },
 });

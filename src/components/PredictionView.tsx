@@ -1,20 +1,30 @@
 import React from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated, TouchableOpacity } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
 import { PredictionResponse } from '../services/apiService';
+import * as Speech from 'expo-speech';
 
 interface PredictionViewProps {
   prediction: PredictionResponse | null;
   isLoading: boolean;
   error: string | null;
   sampleCount: number;
+  isContinuousMode?: boolean;
+  currentWord?: string;
+  onClearWord?: () => void;
+  onDeleteLetter?: () => void;
 }
 
-export default function PredictionView({ prediction, isLoading, error, sampleCount }: PredictionViewProps) {
+export default function PredictionView({ prediction, isLoading, error, sampleCount, isContinuousMode = false, currentWord = '', onClearWord, onDeleteLetter }: PredictionViewProps) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
+
+  // DEBUG: Log props to see what we're receiving
+  React.useEffect(() => {
+    console.log(`[PredictionView] Props - isContinuousMode: ${isContinuousMode}, currentWord: "${currentWord}" (${currentWord.length} letters), prediction: ${prediction?.letter || 'null'}`);
+  }, [isContinuousMode, currentWord, prediction]);
 
   React.useEffect(() => {
     if (isLoading) {
@@ -52,8 +62,79 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
           <Text style={[styles.loadingIcon, { color: colors.accentPrimary }]}>...</Text>
         </Animated.View>
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-          {t('prediction.analyzing')} ({sampleCount}/200)
+          {t('prediction.analyzing')} ({sampleCount}/{isContinuousMode ? 100 : 200})
         </Text>
+      </View>
+    );
+  }
+
+  // In continuous mode, show the word being built (PRIORITY over individual letter)
+  if (isContinuousMode && currentWord.length > 0) {
+    console.log(`[PredictionView] Showing word: "${currentWord}" (${currentWord.length} letters)`);
+    return (
+      <View style={[styles.container, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
+        <View style={styles.mainResult}>
+          <View style={[styles.wordBox, { borderColor: colors.accentPrimary, backgroundColor: `${colors.accentPrimary}20` }]}>
+            <Text style={[styles.wordText, { color: colors.accentPrimary }]}>{currentWord}</Text>
+          </View>
+        </View>
+        
+        <Text style={[styles.continuousModeHint, { color: colors.textSecondary }]}>
+          {currentWord.length} letter{currentWord.length !== 1 ? 's' : ''} detected
+        </Text>
+
+        {/* Action Buttons */}
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: colors.accentPrimary }]}
+            onPress={() => {
+              if (currentWord) {
+                Speech.speak(currentWord, { language: 'en-US', rate: 0.8 });
+              }
+            }}
+          >
+            <Text style={styles.actionButtonText}>Speak</Text>
+          </TouchableOpacity>
+
+          {onDeleteLetter && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#fb923c' }]}
+              onPress={onDeleteLetter}
+            >
+              <Text style={styles.actionButtonText}>Delete</Text>
+            </TouchableOpacity>
+          )}
+
+          {onClearWord && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#ef4444' }]}
+              onPress={onClearWord}
+            >
+              <Text style={styles.actionButtonText}>Clear</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {prediction && (
+          <View style={styles.metadata}>
+            <View style={styles.metadataItem}>
+              <Text style={[styles.metadataLabel, { color: colors.textSecondary }]}>
+                Last letter:
+              </Text>
+              <Text style={[styles.metadataValue, { color: colors.textPrimary }]}>
+                {prediction.letter}
+              </Text>
+            </View>
+            <View style={styles.metadataItem}>
+              <Text style={[styles.metadataLabel, { color: colors.textSecondary }]}>
+                Confidence:
+              </Text>
+              <Text style={[styles.metadataValue, { color: getConfidenceColor(prediction.confidence) }]}>
+                {Math.round(prediction.confidence * 100)}%
+              </Text>
+            </View>
+          </View>
+        )}
       </View>
     );
   }
@@ -139,6 +220,44 @@ const styles = StyleSheet.create({
   letterText: {
     fontSize: 48,
     fontWeight: '800',
+  },
+  wordBox: {
+    minWidth: 120,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    borderWidth: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wordText: {
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: 4,
+  },
+  continuousModeHint: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: -8,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+    justifyContent: 'center',
+  },
+  actionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   confidence: {
     alignItems: 'center',
