@@ -10,11 +10,12 @@ interface QuickDemoProps {
   onStopSimulator: () => void;
   quickDemoCallbackRef: React.MutableRefObject<(() => void) | null>;
   detectedWord: string; // Add this to get the ACTUAL detected word
+  onClearWord: () => void; // Add ability to clear word before demo
+  onResetWordFinalization?: () => void; // Reset finalization state
+  getCurrentWord: () => string; // Get the CURRENT word from ref (not from prop)
 }
 
-const DEMO_WORDS = ['HELLO', 'WORLD', 'DEAF', 'SIGN', 'ASL'];
-
-const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onStopSimulator, quickDemoCallbackRef, detectedWord }) => {
+const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onStopSimulator, quickDemoCallbackRef, detectedWord, onClearWord, onResetWordFinalization, getCurrentWord }) => {
   const { colors } = useTheme();
   const [customWord, setCustomWord] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -22,7 +23,7 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
 
   const simulateWord = async (word: string) => {
     const letters = word.toUpperCase().split('').filter(l => l !== ' ');
-    const availableLetters = 'ABCDEFIKLOSTUVWXY'; // 15 letters (no G H J L M N P Q R U Z)
+    const availableLetters = 'ABCDEFIKOSTUVWXY'; // 16 letters (no G H J L M N P Q R Z)
     const validLetters = letters.filter(l => availableLetters.includes(l));
     const skippedLetters = letters.filter(l => !availableLetters.includes(l));
     
@@ -34,6 +35,16 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
       alert(`No valid letters to simulate!\n\nAvailable: ${availableLetters.split('').join(' ')}`);
       return;
     }
+
+    // CRITICAL: Clear old word before starting new demo
+    console.log('[QuickDemo] Clearing old word before starting new demo');
+    onClearWord();
+    if (onResetWordFinalization) {
+      onResetWordFinalization();
+    }
+    
+    // Wait a tick for the clear to propagate
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     setIsRunning(true);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -74,30 +85,26 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
     setCurrentLetterIndex(-1);
     
     // CRITICAL: Stop the simulator after demo completes!
-    console.log(`[QuickDemo] Input word: "${word}" | Detected: "${detectedWord}"`);
     onStopSimulator();
     
-    // Speak the DETECTED word, not the input word!
+    // Wait a moment for final prediction to complete and word to update
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // Get the ACTUAL detected word from the prediction view (using ref for most current value)
+    const finalWord = getCurrentWord();
+    console.log(`[QuickDemo] Demo complete. Word from prediction view: "${finalWord}"`);
+    
+    // Speak the word from prediction view!
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (detectedWord.length > 0) {
-      console.log(`[QuickDemo] Speaking detected word: "${detectedWord}"`);
-      Speech.speak(detectedWord, {
+    if (finalWord.length > 0) {
+      console.log(`[QuickDemo] Speaking word from prediction view: "${finalWord}"`);
+      Speech.speak(finalWord, {
         language: 'en-US',
         rate: 0.8,
       });
+    } else {
+      console.log('[QuickDemo] WARNING: No word to speak!');
     }
-  };
-
-  const handlePresetWord = async (word: string) => {
-    if (isActive || isRunning) return;
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    simulateWord(word);
-  };
-
-  const handleCustomWord = async () => {
-    if (!customWord.trim() || isActive || isRunning) return;
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    simulateWord(customWord.trim());
   };
 
   return (
@@ -118,37 +125,10 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
         </View>
       )}
 
-      {/* Preset Words */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>
-          Preset Words:
-        </Text>
-        <View style={styles.presetGrid}>
-          {DEMO_WORDS.map(word => (
-            <TouchableOpacity
-              key={word}
-              style={[
-                styles.presetButton,
-                { backgroundColor: colors.accentPrimary, opacity: (isActive || isRunning) ? 0.5 : 1 }
-              ]}
-              onPress={() => handlePresetWord(word)}
-              disabled={isActive || isRunning}
-            >
-              <Text style={[styles.presetButtonText, { color: colors.accentText }]}>
-                {word}
-              </Text>
-              <Text style={[styles.presetDuration, { color: colors.accentText }]}>
-                ~{word.length * 2.5}s
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
       {/* Custom Word */}
       <View style={styles.section}>
         <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>
-          Custom Word:
+          Enter Word:
         </Text>
         <View style={styles.customRow}>
           <TextInput
@@ -176,30 +156,18 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
                 opacity: (!customWord.trim() || isActive || isRunning) ? 0.5 : 1
               }
             ]}
-            onPress={handleCustomWord}
+            onPress={async () => {
+              if (!customWord.trim() || isActive || isRunning) return;
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              simulateWord(customWord.trim());
+            }}
             disabled={!customWord.trim() || isActive || isRunning}
           >
             <Text style={styles.goButtonText}>GO</Text>
           </TouchableOpacity>
         </View>
         <Text style={[styles.helperText, { color: colors.textSecondary }]}>
-          Available letters: A B C D E F I K L O S T V W X Y
-        </Text>
-      </View>
-
-      {/* How it works */}
-      <View style={[styles.infoBox, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
-        <Text style={[styles.infoTitle, { color: colors.textPrimary }]}>
-          How it works:
-        </Text>
-        <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-          • Waits for each prediction to complete before moving to next letter
-        </Text>
-        <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-          • Letters are auto-added to Word Builder above
-        </Text>
-        <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-          • Perfect for demonstrating real-time ASL word recognition!
+          Available letters: A B C D E F I K O S T U V W X Y
         </Text>
       </View>
     </View>
@@ -240,27 +208,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 8,
-  },
-  presetGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  presetButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  presetButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  presetDuration: {
-    fontSize: 10,
-    opacity: 0.8,
   },
   customRow: {
     flexDirection: 'row',

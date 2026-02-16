@@ -67,8 +67,14 @@ function AppContent() {
 
   // Word building state
   const [detectedLetters, setDetectedLetters] = useState<string[]>([]);
+  const detectedLettersRef = React.useRef<string[]>([]); // Ref to always have current value
   const [isContinuousMode, setIsContinuousMode] = useState(false);
   const [minConfidence, setMinConfidence] = useState(0.6); // Threshold for auto-accept
+
+  // Keep ref in sync with state
+  React.useEffect(() => {
+    detectedLettersRef.current = detectedLetters;
+  }, [detectedLetters]);
 
   // QuickDemo control - notify when prediction completes
   const quickDemoCallbackRef = React.useRef<(() => void) | null>(null);
@@ -134,9 +140,15 @@ function AppContent() {
     }
   }, [isContinuousMode, isAnalyzing, isSimulating]);
 
+  // Word finalization state
+  const [isWordFinalized, setIsWordFinalized] = React.useState(false);
+
   // Idle detection: If no samples for 2 seconds in continuous mode, finalize the word
   React.useEffect(() => {
-    if (isContinuousMode && isSimulating && detectedLetters.length > 0) {
+    // Works for BOTH simulator and real glove!
+    const isActiveInContinuousMode = isContinuousMode && (isSimulating || connectedDevice !== null);
+    
+    if (isActiveInContinuousMode && detectedLetters.length > 0 && !isWordFinalized) {
       // Clear existing idle timer
       if (idleTimerRef.current) {
         clearTimeout(idleTimerRef.current);
@@ -145,18 +157,22 @@ function AppContent() {
       // Set a new idle timer
       idleTimerRef.current = setTimeout(() => {
         const timeSinceLastSample = Date.now() - lastSampleTimeRef.current;
-        if (timeSinceLastSample >= 2000) {
-          console.log('[Continuous mode] No samples for 2s - finalizing word');
-          handleStopSimulation();
+        // Only finalize if: not in QuickDemo, enough idle time, and word not already finalized
+        if (timeSinceLastSample >= 2000 && !quickDemoCallbackRef.current && !isWordFinalized) {
+          console.log('[Continuous mode] No samples for 2s - finalizing word and speaking');
           
-          // Speak the complete word
+          // Speak the complete word from prediction view
           const finalWord = detectedLetters.join('');
           if (finalWord.length > 0) {
+            console.log(`[Continuous mode] Speaking final word from prediction view: "${finalWord}"`);
             Speech.speak(finalWord, {
               language: 'en-US',
               rate: 0.8,
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
+            // Mark word as finalized
+            setIsWordFinalized(true);
           }
         }
       }, 2500); // Check 2.5 seconds after last sample
@@ -167,7 +183,7 @@ function AppContent() {
         clearTimeout(idleTimerRef.current);
       }
     };
-  }, [isContinuousMode, isSimulating, detectedLetters]);
+  }, [isContinuousMode, isSimulating, connectedDevice, detectedLetters, isWordFinalized]);
 
   const makePrediction = useCallback(async (samples: number[][]) => {
     const simulationEndTime = Date.now();
@@ -218,9 +234,17 @@ function AppContent() {
       if (isContinuousMode) {
         if (isQuickDemoRunning || response.confidence >= minConfidence) {
           setDetectedLetters(prev => {
-            const newLetters = [...prev, response.letter];
-            console.log(`[App] Added letter "${response.letter}" to word. Current word: "${newLetters.join('')}"`);
-            return newLetters;
+            // If word was finalized and we're adding a new letter, clear the old word first
+            let newLetters = prev;
+            if (isWordFinalized) {
+              console.log('[App] Word was finalized, clearing old word before adding new letter');
+              newLetters = [];
+              setIsWordFinalized(false); // Reset finalization state
+            }
+            
+            const updatedLetters = [...newLetters, response.letter];
+            console.log(`[App] Added letter "${response.letter}" to word. Current word: "${updatedLetters.join('')}"`);
+            return updatedLetters;
           });
         } else {
           console.log(`[App] Skipping letter "${response.letter}" - confidence ${Math.round(response.confidence * 100)}% < ${Math.round(minConfidence * 100)}%`);
@@ -262,7 +286,7 @@ function AppContent() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [connectedDevice, isContinuousMode, minConfidence]); // ADD isContinuousMode!
+  }, [connectedDevice, isContinuousMode, minConfidence, isWordFinalized]); // ADD isWordFinalized!
 
   // Use ref to avoid recreating callbacks
   const makePredictionRef = React.useRef(makePrediction);
@@ -291,8 +315,8 @@ function AppContent() {
       const newBuffer = [...prev, data];
       console.log(`Buffer now has ${newBuffer.length} samples`);
       
-      // When we have 100 samples (2 seconds at 50Hz) in continuous mode, or 200 in single mode
-      const targetSamples = isContinuousMode ? 100 : 200;
+      // When we have 150 samples (3 seconds at 50Hz) in continuous mode, or 200 in single mode
+      const targetSamples = isContinuousMode ? 150 : 200;
       console.log(`Target samples: ${targetSamples} (continuous mode: ${isContinuousMode})`);
       
       if (newBuffer.length >= targetSamples) {
@@ -377,6 +401,12 @@ function AppContent() {
               ASL Recognition
             </Text>
 
+            <ConnectionManager
+              onDeviceConnected={setConnectedDevice}
+              onDeviceDisconnected={() => setConnectedDevice(null)}
+              onDataReceived={handleSensorData}
+            />
+
             {/* Mode Selector */}
             <View style={[styles.modeSelector, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
               <Text style={[styles.modeLabel, { color: colors.textPrimary }]}>
@@ -420,7 +450,7 @@ function AppContent() {
                     Continuous Words
                   </Text>
                   <Text style={[styles.modeDescription, { color: isContinuousMode ? colors.accentText : colors.textSecondary }]}>
-                    100 samples (2s)
+                    150 samples (3s)
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -438,14 +468,14 @@ function AppContent() {
                 }}
                 quickDemoCallbackRef={quickDemoCallbackRef}
                 detectedWord={detectedLetters.join('')}
+                onClearWord={() => {
+                  setDetectedLetters([]);
+                  setCurrentPrediction(null); // Clear the prediction too!
+                }}
+                onResetWordFinalization={() => setIsWordFinalized(false)}
+                getCurrentWord={() => detectedLettersRef.current.join('')}
               />
             )}
-
-            <ConnectionManager
-              onDeviceConnected={setConnectedDevice}
-              onDeviceDisconnected={() => setConnectedDevice(null)}
-              onDataReceived={handleSensorData}
-            />
 
             <SimulatorControl
               onSensorData={handleSensorData}
@@ -468,7 +498,11 @@ function AppContent() {
               sampleCount={isAnalyzing || currentPrediction ? lastSampleCount : sensorBuffer.length}
               isContinuousMode={isContinuousMode}
               currentWord={detectedLetters.join('')}
-              onClearWord={() => setDetectedLetters([])}
+              onClearWord={() => {
+                setDetectedLetters([]);
+                setCurrentPrediction(null); // Clear the prediction too!
+                setIsWordFinalized(false); // Reset finalization state
+              }}
               onDeleteLetter={() => setDetectedLetters(prev => prev.slice(0, -1))}
             />
             

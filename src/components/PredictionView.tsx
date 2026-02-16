@@ -1,9 +1,28 @@
 import React from 'react';
-import { View, Text, StyleSheet, Animated, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Animated, TouchableOpacity, Image } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
 import { PredictionResponse } from '../services/apiService';
 import * as Speech from 'expo-speech';
+
+// Import ASL sign images
+const ASL_SIGNS: { [key: string]: any } = {
+  A: require('../../assets/asl/A.png'),
+  B: require('../../assets/asl/B.png'),
+  C: require('../../assets/asl/C.png'),
+  D: require('../../assets/asl/D.png'),
+  E: require('../../assets/asl/E.png'),
+  F: require('../../assets/asl/F.png'),
+  I: require('../../assets/asl/I.png'),
+  K: require('../../assets/asl/K.png'),
+  O: require('../../assets/asl/O.png'),
+  S: require('../../assets/asl/S.png'),
+  T: require('../../assets/asl/T.png'),
+  V: require('../../assets/asl/V.png'),
+  W: require('../../assets/asl/W.png'),
+  X: require('../../assets/asl/X.png'),
+  Y: require('../../assets/asl/Y.png'),
+};
 
 interface PredictionViewProps {
   prediction: PredictionResponse | null;
@@ -18,7 +37,7 @@ interface PredictionViewProps {
 
 export default function PredictionView({ prediction, isLoading, error, sampleCount, isContinuousMode = false, currentWord = '', onClearWord, onDeleteLetter }: PredictionViewProps) {
   const { t } = useTranslation();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
 
   // DEBUG: Log props to see what we're receiving
@@ -62,7 +81,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
           <Text style={[styles.loadingIcon, { color: colors.accentPrimary }]}>...</Text>
         </Animated.View>
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-          {t('prediction.analyzing')} ({sampleCount}/{isContinuousMode ? 100 : 200})
+          {t('prediction.analyzing')} ({sampleCount}/{isContinuousMode ? 150 : 200})
         </Text>
       </View>
     );
@@ -77,6 +96,25 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
           <View style={[styles.wordBox, { borderColor: colors.accentPrimary, backgroundColor: `${colors.accentPrimary}20` }]}>
             <Text style={[styles.wordText, { color: colors.accentPrimary }]}>{currentWord}</Text>
           </View>
+        </View>
+        
+        {/* ASL Sign Images for each letter */}
+        <View style={styles.aslSignsContainer}>
+          {currentWord.split('').map((letter, index) => (
+            <View key={`${letter}-${index}`} style={styles.aslSignWrapper}>
+              {ASL_SIGNS[letter] && (
+                <Image 
+                  source={ASL_SIGNS[letter]} 
+                  style={[
+                    styles.aslSignImage,
+                    isDark && { tintColor: '#ffffff' }
+                  ]}
+                  resizeMode="contain"
+                />
+              )}
+              <Text style={[styles.aslSignLabel, { color: colors.textSecondary }]}>{letter}</Text>
+            </View>
+          ))}
         </View>
         
         <Text style={[styles.continuousModeHint, { color: colors.textSecondary }]}>
@@ -168,6 +206,23 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
           </Text>
         </View>
       </View>
+
+      {/* ASL Sign Image for single letter */}
+      {ASL_SIGNS[prediction.letter] && (
+        <View style={styles.singleLetterSignContainer}>
+          <Image 
+            source={ASL_SIGNS[prediction.letter]} 
+            style={[
+              styles.singleLetterSignImage,
+              isDark && { tintColor: '#ffffff' }
+            ]}
+            resizeMode="contain"
+          />
+          <Text style={[styles.signHintText, { color: colors.textSecondary }]}>
+            ASL Sign for "{prediction.letter}"
+          </Text>
+        </View>
+      )}
 
       <View style={styles.metadata}>
         <View style={styles.metadataItem}>
@@ -317,6 +372,40 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 14,
     textAlign: 'center',
+  },
+  aslSignsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  aslSignWrapper: {
+    alignItems: 'center',
+    width: 70,
+  },
+  aslSignImage: {
+    width: 60,
+    height: 60,
+    marginBottom: 4,
+  },
+  aslSignLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  singleLetterSignContainer: {
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  singleLetterSignImage: {
+    width: 120,
+    height: 120,
+    marginBottom: 8,
+  },
+  signHintText: {
+    fontSize: 11,
+    fontStyle: 'italic',
   },
 });
 
