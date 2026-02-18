@@ -1,6 +1,15 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://api.ybilgin.com';
+// Load from environment variables
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://api.ybilgin.com';
+const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
+
+// Debug: Log API key status on load
+console.log('[apiService] API_BASE_URL:', API_BASE_URL);
+console.log('[apiService] API_KEY configured:', !!API_KEY && API_KEY !== 'your-api-key-here');
+if (!API_KEY || API_KEY === 'your-api-key-here') {
+  console.warn('[apiService] ⚠️ API_KEY not configured!');
+}
 
 export interface SensorData {
   flex_sensors: number[][];
@@ -22,6 +31,7 @@ export interface HealthResponse {
   model_name: string;
   database_connected: boolean;
   uptime_seconds: number;
+  authentication_enabled?: boolean;
 }
 
 class ApiService {
@@ -44,6 +54,7 @@ class ApiService {
         {
           headers: {
             'Content-Type': 'application/json',
+            'X-API-Key': API_KEY,
           },
           timeout: 5000, // 5 second timeout
         }
@@ -54,6 +65,17 @@ class ApiService {
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
+        // Handle specific error codes
+        if (error.response?.status === 401) {
+          throw new Error('Missing API Key. Configure EXPO_PUBLIC_API_KEY in .env');
+        }
+        if (error.response?.status === 403) {
+          throw new Error('Invalid API Key. Check your .env configuration');
+        }
+        if (error.response?.status === 429) {
+          throw new Error('Rate limit exceeded. Please wait a moment');
+        }
+        
         throw new Error(
           error.response?.data?.detail || 
           error.message || 
@@ -76,6 +98,20 @@ class ApiService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Check if API is configured with a valid key
+   */
+  isConfigured(): boolean {
+    return !!API_KEY && API_KEY !== 'your-api-key-here';
+  }
+
+  /**
+   * Get current API base URL
+   */
+  getBaseUrl(): string {
+    return API_BASE_URL;
   }
 }
 
