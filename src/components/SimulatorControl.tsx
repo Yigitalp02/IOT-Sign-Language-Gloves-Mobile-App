@@ -13,24 +13,28 @@ interface SimulatorControlProps {
   simulateLetterRef?: React.MutableRefObject<string | null>;
 }
 
-// ASL patterns as normalized 0-1 values (0=straight, 1=fully bent)
-// Source: iot-sign-glove/scripts/synthetic_asl_simulator.py
+/**
+ * ASL patterns: normalized 0-1 values where 0 = straight, 1 = bent.
+ * These are the EXACT patterns used by the desktop simulator — the model
+ * was trained on data derived from these same normalized values.
+ * Order: [thumb, index, middle, ring, pinky]
+ */
 const ASL_PATTERNS: Record<string, number[]> = {
-  A: [0.02, 0.68, 0.78, 0.65, 0.68],
-  B: [0.42, 0.13, 0.24, 0.26, 0.32],
-  C: [0.31, 0.56, 0.70, 0.59, 0.59],
-  D: [0.40, 0.04, 0.74, 0.64, 0.66],
-  E: [0.53, 0.61, 0.81, 0.64, 0.64],
-  F: [0.44, 0.43, 0.13, 0.22, 0.33],
-  I: [0.47, 0.68, 0.74, 0.66, 0.22],
-  K: [0.13, 0.00, 0.35, 0.65, 0.68],
-  O: [0.50, 0.50, 0.58, 0.58, 0.54],
-  S: [0.55, 0.67, 0.74, 0.68, 0.69],
-  T: [0.33, 0.20, 0.67, 0.63, 0.68],
-  V: [0.26, 0.03, 0.02, 0.72, 0.65],
-  W: [0.23, 0.12, 0.11, 0.22, 0.73],
-  X: [0.38, 0.47, 0.71, 0.65, 0.71],
-  Y: [0.00, 0.58, 0.71, 0.65, 0.24],
+  A: [0.00, 1.00, 0.90, 1.00, 1.00],
+  B: [0.74, 0.05, 0.06, 0.10, 0.13],
+  C: [0.00, 1.00, 0.85, 0.98, 0.86],
+  D: [0.09, 0.05, 0.85, 1.00, 0.79],
+  E: [0.88, 1.00, 0.97, 1.00, 0.97],
+  F: [0.04, 0.52, 0.11, 0.26, 0.28],
+  I: [0.83, 0.99, 0.85, 0.98, 0.20],
+  K: [0.04, 0.53, 0.21, 0.87, 0.50],
+  O: [0.02, 0.91, 0.81, 0.98, 0.78],
+  S: [0.57, 0.92, 0.87, 1.00, 0.96],
+  T: [0.07, 0.88, 0.88, 1.00, 1.00],
+  V: [0.55, 0.31, 0.19, 0.94, 0.81],
+  W: [0.72, 0.09, 0.03, 0.15, 0.90],
+  X: [0.48, 0.33, 0.77, 0.92, 0.91],
+  Y: [0.01, 0.98, 0.91, 0.95, 0.03],
 };
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'K', 'O', 'S', 'T', 'V', 'W', 'X', 'Y'];
@@ -73,9 +77,9 @@ export default function SimulatorControl({
       const basePattern = ASL_PATTERNS[selectedLetter];
       if (!basePattern) return;
 
-      // Add realistic noise (±0.02) and clamp to 0-1 range
+      // Realistic noise ±0.015 (equivalent to ±8 ADC counts on raw range ~500)
       const noisyData = basePattern.map(value =>
-        Math.round(Math.max(0, Math.min(1, value + Math.random() * 0.04 - 0.02)) * 10000) / 10000
+        Math.round(Math.max(0, Math.min(1, value + (Math.random() * 0.03 - 0.015))) * 10000) / 10000
       );
 
       onSensorData(noisyData);

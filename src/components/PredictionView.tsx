@@ -74,14 +74,17 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
     );
   }
 
-  if (isLoading) {
+  // Only replace the whole view with a spinner when there is no result yet.
+  // Once we have a prediction, keep showing it during subsequent API calls
+  // (rolling window fires every 200ms — replacing the view each time causes flicker).
+  if (isLoading && !prediction) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <Text style={[styles.loadingIcon, { color: colors.accentPrimary }]}>...</Text>
         </Animated.View>
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-          {t('prediction.analyzing')} ({sampleCount}/{isContinuousMode ? 150 : 200})
+          {t('prediction.analyzing')}
         </Text>
       </View>
     );
@@ -89,9 +92,15 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
 
   // In continuous mode, show the word being built (PRIORITY over individual letter)
   if (isContinuousMode && currentWord.length > 0) {
-    console.log(`[PredictionView] Showing word: "${currentWord}" (${currentWord.length} letters)`);
     return (
       <View style={[styles.container, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
+        {/* Live indicator — visible while rolling predictions are in-flight */}
+        {isLoading && (
+          <View style={styles.liveIndicator}>
+            <View style={[styles.liveDot, { backgroundColor: colors.accentPrimary }]} />
+            <Text style={[styles.liveText, { color: colors.accentPrimary }]}>LIVE</Text>
+          </View>
+        )}
         <View style={styles.mainResult}>
           <View style={[styles.wordBox, { borderColor: colors.accentPrimary, backgroundColor: `${colors.accentPrimary}20` }]}>
             <Text style={[styles.wordText, { color: colors.accentPrimary }]}>{currentWord}</Text>
@@ -192,6 +201,13 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
+      {/* Live indicator — visible while rolling predictions are in-flight */}
+      {isLoading && (
+        <View style={styles.liveIndicator}>
+          <View style={[styles.liveDot, { backgroundColor: colors.accentPrimary }]} />
+          <Text style={[styles.liveText, { color: colors.accentPrimary }]}>LIVE</Text>
+        </View>
+      )}
       <View style={styles.mainResult}>
         <View style={[styles.letterCircle, { borderColor: confidenceColor, backgroundColor: `${confidenceColor}20` }]}>
           <Text style={[styles.letterText, { color: confidenceColor }]}>{prediction.letter}</Text>
@@ -348,6 +364,24 @@ const styles = StyleSheet.create({
   modelInfo: {
     fontSize: 10,
     fontStyle: 'italic',
+  },
+  liveIndicator: {
+    position: 'absolute',
+    top: 10,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  liveText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   loadingIcon: {
     fontSize: 48,

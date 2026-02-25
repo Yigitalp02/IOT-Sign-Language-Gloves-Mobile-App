@@ -7,7 +7,9 @@ import './src/i18n/i18n';
 import { useTranslation } from 'react-i18next';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import ConnectionManager from './src/components/ConnectionManager';
+import CalibrationManager from './src/components/CalibrationManager';
 import SimulatorControl from './src/components/SimulatorControl';
+import { normalizeSample, isRawThermistorData, DEFAULT_BASELINES, DEFAULT_MAXBENDS } from './src/utils/normalization';
 import PredictionView from './src/components/PredictionView';
 import PredictionHistory from './src/components/PredictionHistory';
 import DebugLog from './src/components/DebugLog';
@@ -42,8 +44,11 @@ function AppContent() {
   const [text, setText] = useState('');
   const [ttsStatus, setTtsStatus] = useState('');
 
+  // ── Rolling window constants (matches training / desktop app) ────────────
+  const WINDOW_SIZE = 50; // 50 samples at 50Hz = 1s of data in the window
+
   // Prediction state
-  const [sensorBuffer, setSensorBuffer] = useState<number[][]>([]);
+  const [sensorBuffer, setSensorBuffer] = useState<number[][]>([]); // QuickDemo batch mode only
   const isCollectingRef = React.useRef(true);
   const [lastSampleCount, setLastSampleCount] = useState(0);
   const [currentPrediction, setCurrentPrediction] = useState<PredictionResponse | null>(null);
@@ -51,8 +56,15 @@ function AppContent() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [predictionHistory, setPredictionHistory] = useState<PredictionRecord[]>([]);
   
-  // Real-time sensor display
+  // Real-time sensor display — throttled to ~10 fps to prevent UI thrashing at 50 Hz
   const [currentSample, setCurrentSample] = useState<number[] | null>(null);
+  const lastDisplayUpdateRef = React.useRef(0);
+  // CalibrationManager registers a handler here to receive every raw sample at full 50 Hz
+  const calibSampleHandlerRef = React.useRef<((data: number[]) => void) | null>(null);
+  const onRegisterCalibSampleHandler = useCallback(
+    (fn: ((data: number[]) => void) | null) => { calibSampleHandlerRef.current = fn; },
+    [],
+  );
   
   // Debug state
   const [debugLogData, setDebugLogData] = useState<DebugLogData | null>(null);
@@ -64,6 +76,19 @@ function AppContent() {
   
   // Connection state
   const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
+  // Ref so closures (handleSensorData) always see the latest value without stale closure
+  const connectedDeviceRef = React.useRef<string | null>(null);
+  React.useEffect(() => { connectedDeviceRef.current = connectedDevice; }, [connectedDevice]);
+
+  // Calibration state
+  const [calibBaselines, setCalibBaselines] = useState<number[]>(DEFAULT_BASELINES);
+  const [calibMaxbends,  setCalibMaxbends]  = useState<number[]>(DEFAULT_MAXBENDS);
+  const [isCalibrated,   setIsCalibrated]   = useState(false);
+  // Refs so the rolling-window callback always reads the latest calibration
+  const calibBaselinesRef = React.useRef(DEFAULT_BASELINES);
+  const calibMaxbendsRef  = React.useRef(DEFAULT_MAXBENDS);
+  React.useEffect(() => { calibBaselinesRef.current = calibBaselines; }, [calibBaselines]);
+  React.useEffect(() => { calibMaxbendsRef.current  = calibMaxbends;  }, [calibMaxbends]);
 
   // Word building state
   const [detectedLetters, setDetectedLetters] = useState<string[]>([]);
@@ -76,24 +101,29 @@ function AppContent() {
     detectedLettersRef.current = detectedLetters;
   }, [detectedLetters]);
 
+  // ── Rolling window refs (real glove / manual simulator) ──────────────────
+  const rollingBufferRef = React.useRef<number[][]>([]);
+  const isPredictingRef  = React.useRef(false); // prevents concurrent API calls
+  // Stable prediction tracking for continuous word building
+  const stablePredRef    = React.useRef<{ letter: string; count: number }>({ letter: '', count: 0 });
+  const letterUsedRef    = React.useRef(false); // prevent re-adding same stable letter
+  const lastSpokenLetterRef = React.useRef<string>(''); // TTS: only speak when letter changes
+
   // QuickDemo control - notify when prediction completes
   const quickDemoCallbackRef = React.useRef<(() => void) | null>(null);
 
   // Handler to programmatically trigger letter simulation
   const simulateLetter = useCallback((letter: string) => {
-    // Make sure we're in continuous mode
-    if (!isContinuousMode) {
-      setIsContinuousMode(true);
-    }
-    
-    // Start simulation
+    if (!isContinuousMode) setIsContinuousMode(true);
     setIsSimulating(true);
     setCurrentSample(null);
     setSensorBuffer([]);
+    // Reset rolling window so the new letter starts fresh
+    rollingBufferRef.current = [];
+    stablePredRef.current = { letter: '', count: 0 };
+    letterUsedRef.current = false;
     isCollectingRef.current = true;
     simulationStartTimeRef.current = Date.now();
-    
-    // Trigger the simulator component by updating a ref
     simulateLetterRef.current = letter;
   }, [isContinuousMode]);
 
@@ -185,15 +215,14 @@ function AppContent() {
     };
   }, [isContinuousMode, isSimulating, connectedDevice, detectedLetters, isWordFinalized]);
 
-  const makePrediction = useCallback(async (samples: number[][]) => {
+  const makePrediction = useCallback(async (samples: number[][]): Promise<void> => {
     const simulationEndTime = Date.now();
     const apiCallTime = Date.now();
-    
-    console.log(`Making prediction with ${samples.length} samples`);
+    const isQuickDemoRunning = quickDemoCallbackRef.current !== null;
+
     setIsAnalyzing(true);
     setPredictionError(null);
 
-    // Prepare debug data
     const debugData: DebugLogData = {
       simulationStartTime: simulationStartTimeRef.current,
       simulationEndTime,
@@ -209,73 +238,74 @@ function AppContent() {
         device_id: connectedDevice || 'mobile-simulator',
       });
 
-      const apiResponseTime = Date.now();
-      debugData.apiResponseTime = apiResponseTime;
+      debugData.apiResponseTime = Date.now();
       debugData.apiResponse = response;
 
       setCurrentPrediction(response);
       setDebugLogData(debugData);
-      
-      // Add to history
+      setLastSampleCount(samples.length);
+
       setPredictionHistory(prev => [
-        {
-          letter: response.letter,
-          confidence: response.confidence,
-          timestamp: response.timestamp,
-        },
-        ...prev.slice(0, 19), // Keep last 20
+        { letter: response.letter, confidence: response.confidence, timestamp: response.timestamp },
+        ...prev.slice(0, 19),
       ]);
 
-      // Auto-add to word builder in continuous mode
-      // For QuickDemo: ALWAYS add (regardless of confidence) for demo purposes
-      // For manual continuous: Only add if confidence >= threshold
-      const isQuickDemoRunning = quickDemoCallbackRef.current !== null; // Check BEFORE clearing!
-      console.log(`[App] Continuous mode: ${isContinuousMode}, QuickDemo: ${isQuickDemoRunning}, Confidence: ${Math.round(response.confidence * 100)}%`);
+      // ── Continuous mode: word building ────────────────────────────────────
       if (isContinuousMode) {
-        if (isQuickDemoRunning || response.confidence >= minConfidence) {
-          setDetectedLetters(prev => {
-            // If word was finalized and we're adding a new letter, clear the old word first
-            let newLetters = prev;
-            if (isWordFinalized) {
-              console.log('[App] Word was finalized, clearing old word before adding new letter');
-              newLetters = [];
-              setIsWordFinalized(false); // Reset finalization state
-            }
-            
-            const updatedLetters = [...newLetters, response.letter];
-            console.log(`[App] Added letter "${response.letter}" to word. Current word: "${updatedLetters.join('')}"`);
-            return updatedLetters;
-          });
+        if (isQuickDemoRunning) {
+          // QuickDemo batch mode: add every confident prediction immediately
+          if (response.confidence >= minConfidence) {
+            setDetectedLetters(prev => {
+              let base = prev;
+              if (isWordFinalized) { base = []; setIsWordFinalized(false); }
+              return [...base, response.letter];
+            });
+          }
         } else {
-          console.log(`[App] Skipping letter "${response.letter}" - confidence ${Math.round(response.confidence * 100)}% < ${Math.round(minConfidence * 100)}%`);
+          // Rolling window mode: require N consecutive same-letter predictions
+          const STABLE_NEEDED = 4; // ~800 ms
+          if (response.letter === stablePredRef.current.letter) {
+            stablePredRef.current.count++;
+            if (stablePredRef.current.count >= STABLE_NEEDED && !letterUsedRef.current && response.confidence >= minConfidence) {
+              letterUsedRef.current = true;
+              console.log(`[App] Stable letter "${response.letter}" (${stablePredRef.current.count}x) → adding to word`);
+              setDetectedLetters(prev => {
+                let base = prev;
+                if (isWordFinalized) { base = []; setIsWordFinalized(false); }
+                return [...base, response.letter];
+              });
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+          } else {
+            // Letter changed — unlock for the new one
+            stablePredRef.current = { letter: response.letter, count: 1 };
+            letterUsedRef.current = false;
+          }
         }
-      } else {
-        console.log(`[App] NOT in continuous mode, letter will NOT be added to word`);
       }
 
-      // Notify QuickDemo that prediction is complete (if waiting)
-      if (quickDemoCallbackRef.current) {
-        console.log('[App] Notifying QuickDemo that prediction is complete');
-        const callback = quickDemoCallbackRef.current;
-        quickDemoCallbackRef.current = null; // Clear it AFTER checking
-        callback(); // Trigger next letter
+      // QuickDemo: advance to next letter
+      if (isQuickDemoRunning) {
+        const cb = quickDemoCallbackRef.current!;
+        quickDemoCallbackRef.current = null;
+        cb();
       }
 
-      // Haptic feedback
-      if (response.confidence >= 0.8) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } else if (response.confidence >= 0.6) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      } else {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      // Haptic feedback (only in non-rolling path to avoid double-haptic)
+      if (!isContinuousMode || isQuickDemoRunning) {
+        if (response.confidence >= 0.8) {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else if (response.confidence >= 0.6) {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        } else {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
       }
 
-      // Only speak letter in SINGLE LETTER mode, NOT in continuous mode
-      if (!isContinuousMode) {
-        Speech.speak(response.letter, {
-          language: 'en-US',
-          rate: 0.8,
-        });
+      // Speak letter in single-letter mode only — once per letter change
+      if (!isContinuousMode && response.letter !== lastSpokenLetterRef.current) {
+        lastSpokenLetterRef.current = response.letter;
+        Speech.speak(response.letter, { language: 'en-US', rate: 0.8 });
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Prediction failed';
@@ -286,7 +316,7 @@ function AppContent() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [connectedDevice, isContinuousMode, minConfidence, isWordFinalized]); // ADD isWordFinalized!
+  }, [connectedDevice, isContinuousMode, minConfidence, isWordFinalized]);
 
   // Use ref to avoid recreating callbacks
   const makePredictionRef = React.useRef(makePrediction);
@@ -294,48 +324,65 @@ function AppContent() {
     makePredictionRef.current = makePrediction;
   }, [makePrediction]);
 
-  // Handle sensor data from simulator or real device
+  // Handle sensor data from simulator or real BLE device
   const handleSensorData = useCallback((data: number[]) => {
-    // Update last sample time for idle detection
     lastSampleTimeRef.current = Date.now();
-    
-    // Check if we should still be collecting (BEFORE setState!)
-    if (!isCollectingRef.current) {
-      console.log('Ignoring sample - collection stopped');
+
+    // ── Normalize BLE glove data ─────────────────────────────────────────────
+    // Simulator already sends normalized 0-1 values.
+    // A real BLE glove sends raw thermistor ADC values (e.g. 2700, 1650 …).
+    const isRawGlove =
+      connectedDeviceRef.current !== null || isRawThermistorData(data);
+
+    const processedData = isRawGlove
+      ? normalizeSample(data, calibBaselinesRef.current, calibMaxbendsRef.current)
+      : data;
+
+    // ── Feed raw sample to CalibrationManager at full 50 Hz (no throttle) ────
+    if (isRawGlove) calibSampleHandlerRef.current?.(data);
+
+    // ── Throttled display update (~10 fps) ────────────────────────────────────
+    // Show the normalized values so the sensor bars always reflect 0-1 scale.
+    const now = Date.now();
+    if (now - lastDisplayUpdateRef.current >= 100) {
+      lastDisplayUpdateRef.current = now;
+      setCurrentSample(processedData);
+    }
+
+    // ── QuickDemo: legacy batch mode (keeps exact QuickDemo behaviour) ────────
+    if (quickDemoCallbackRef.current) {
+      if (!isCollectingRef.current) return;
+      setSensorBuffer(prev => {
+        if (!isCollectingRef.current) return prev;
+        const newBuffer = [...prev, processedData];
+        const target = isContinuousMode ? 150 : 200;
+        if (newBuffer.length >= target) {
+          isCollectingRef.current = false;
+          setLastSampleCount(newBuffer.length);
+          setTimeout(() => makePredictionRef.current(newBuffer), 0);
+          return [];
+        }
+        return newBuffer;
+      });
       return;
     }
 
-    setSensorBuffer(prev => {
-      // Double-check inside setState too
-      if (!isCollectingRef.current) {
-        console.log('Ignoring sample - collection stopped (inside setState)');
-        return prev;
-      }
+    // ── Real glove / manual simulator: rolling 50-sample window ──────────────
+    rollingBufferRef.current.push(processedData);
+    if (rollingBufferRef.current.length > WINDOW_SIZE) {
+      rollingBufferRef.current.shift();
+    }
 
-      const newBuffer = [...prev, data];
-      console.log(`Buffer now has ${newBuffer.length} samples`);
-      
-      // When we have 150 samples (3 seconds at 50Hz) in continuous mode, or 200 in single mode
-      const targetSamples = isContinuousMode ? 150 : 200;
-      console.log(`Target samples: ${targetSamples} (continuous mode: ${isContinuousMode})`);
-      
-      if (newBuffer.length >= targetSamples) {
-        console.log(`Triggering prediction with ${newBuffer.length} samples`);
-        isCollectingRef.current = false; // Stop collecting immediately!
-        if (!isContinuousMode) {
-          setIsSimulating(false); // Only stop UI in manual mode
-        }
-        setLastSampleCount(newBuffer.length); // Save count for display
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        
-        // Make prediction on next tick to avoid race conditions
-        setTimeout(() => makePredictionRef.current(newBuffer), 0);
-        return [];
-      }
-      
-      return newBuffer;
-    });
-  }, [isContinuousMode]); // ADD isContinuousMode to dependencies!
+    // Fire as soon as the window is full and no call is already in-flight.
+    // The API response time is the natural rate limiter.
+    if (rollingBufferRef.current.length >= WINDOW_SIZE && !isPredictingRef.current) {
+      isPredictingRef.current = true;
+      const snapshot = [...rollingBufferRef.current];
+      makePredictionRef.current(snapshot).finally(() => {
+        isPredictingRef.current = false;
+      });
+    }
+  }, [isContinuousMode, WINDOW_SIZE]);
 
   const handleSpeak = (language: string) => {
     if (!text.trim()) {
@@ -354,8 +401,13 @@ function AppContent() {
 
   const handleStopSimulation = () => {
     setIsSimulating(false);
-    isCollectingRef.current = false;
+    isCollectingRef.current      = false;
+    isPredictingRef.current      = false;
     setSensorBuffer([]);
+    rollingBufferRef.current     = [];
+    stablePredRef.current        = { letter: '', count: 0 };
+    letterUsedRef.current        = false;
+    lastSpokenLetterRef.current  = ''; // reset so next start speaks immediately
   };
 
   return (
@@ -403,8 +455,34 @@ function AppContent() {
 
             <ConnectionManager
               onDeviceConnected={setConnectedDevice}
-              onDeviceDisconnected={() => setConnectedDevice(null)}
+              onDeviceDisconnected={() => {
+                setConnectedDevice(null);
+                rollingBufferRef.current    = [];
+                isPredictingRef.current     = false;
+                stablePredRef.current       = { letter: '', count: 0 };
+                letterUsedRef.current       = false;
+                lastSpokenLetterRef.current = '';
+              }}
               onDataReceived={handleSensorData}
+            />
+
+            {/* Glove calibration — only visible when a BLE device is connected */}
+            <CalibrationManager
+              onRegisterSampleHandler={onRegisterCalibSampleHandler}
+              isConnected={connectedDevice !== null}
+              baselines={calibBaselines}
+              maxbends={calibMaxbends}
+              isCalibrated={isCalibrated}
+              onCalibrate={(newBaselines, newMaxbends) => {
+                setCalibBaselines(newBaselines);
+                setCalibMaxbends(newMaxbends);
+                setIsCalibrated(true);
+              }}
+              onReset={() => {
+                setCalibBaselines(DEFAULT_BASELINES);
+                setCalibMaxbends(DEFAULT_MAXBENDS);
+                setIsCalibrated(false);
+              }}
             />
 
             {/* Mode Selector */}
@@ -430,7 +508,7 @@ function AppContent() {
                     Single Letter
                   </Text>
                   <Text style={[styles.modeDescription, { color: !isContinuousMode ? colors.accentText : colors.textSecondary }]}>
-                    200 samples (4s)
+                    Rolling 50-sample window
                   </Text>
                 </TouchableOpacity>
 
@@ -450,7 +528,7 @@ function AppContent() {
                     Continuous Words
                   </Text>
                   <Text style={[styles.modeDescription, { color: isContinuousMode ? colors.accentText : colors.textSecondary }]}>
-                    150 samples (3s)
+                    Stable detection (~800ms)
                   </Text>
                 </TouchableOpacity>
               </View>

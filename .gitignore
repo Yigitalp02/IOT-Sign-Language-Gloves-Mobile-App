@@ -33,14 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 .env
-
 # typescript
 *.tsbuildinfo
 
 # generated native folders
 /ios
-
-# Android build outputs (keep source files)
-/android/app/build
-/android/build
-/android/.gradle
+/android

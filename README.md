@@ -1,365 +1,231 @@
-# ASL Sign Language Recognition - Mobile App
+# IoT Sign Language - Mobile App
 
-Android and iOS mobile application for real-time American Sign Language (ASL) recognition using sensor glove technology and cloud-based machine learning.
-
-**Version**: 0.4.0  
-**Last Updated**: February 2026
+Android mobile application for real-time American Sign Language (ASL) recognition using sensor glove technology and cloud-based machine learning.
 
 ---
 
-## Features
+## 🚀 Features
 
-### Current Features
+### ✅ Implemented
 - **ASL Recognition**: Real-time prediction of 15 ASL letters (A, B, C, D, E, F, I, K, O, S, T, V, W, X, Y)
-- **Cloud API Integration**: Uses `https://api.ybilgin.com` for ML inference with API key authentication
-- **ASL Simulator**: Test predictions without physical glove hardware
-- **Continuous Mode**: Build words letter by letter with auto-completion
-- **Quick Demo Mode**: Automated word simulation for presentations
+- **Cloud API Integration**: Uses `https://api.ybilgin.com` for ML inference
+- **Simulator Mode**: Test predictions without physical glove
+- **Bluetooth Ready**: Prepared for BLE connection to physical glove (hardware pending)
 - **Prediction History**: View last 20 predictions with confidence scores
-- **Haptic Feedback**: Vibration based on prediction confidence
-- **Text-to-Speech**: Automatic voice output for letters and words
-- **ASL Sign Images**: Visual reference for each letter
-- **Multi-language**: English and Turkish interface
+- **Haptic Feedback**: Vibration feedback based on prediction confidence
+- **Text-to-Speech**: Speaks predicted letters automatically
+- **Multi-language**: English and Turkish support
 - **Theme Support**: Light, dark, and system theme modes
-- **Beautiful UI**: Modern, polished interface with smooth animations
-
-### Upcoming Features
-- Bluetooth connection to physical glove (hardware in development)
-- Offline mode with TensorFlow Lite
-- User authentication and cloud sync
-- Enhanced statistics and analytics
+- **Beautiful UI**: Modern, polished interface with animations
 
 ---
 
-## Tech Stack
+## 📱 Screenshots
 
-- **Framework**: React Native (Expo SDK 51)
-- **Language**: TypeScript
-- **Navigation**: React Navigation
-- **API Client**: Axios
-- **Bluetooth**: react-native-ble-plx (prepared, awaiting hardware)
-- **Haptics**: expo-haptics
-- **TTS**: expo-speech
-- **i18n**: react-i18next
-- **Build Service**: EAS (Expo Application Services)
+The app includes:
+- **Connection Manager**: Scan and connect to ASL glove via Bluetooth
+- **Simulator Control**: 15 letter buttons to simulate sensor data
+- **Prediction View**: Real-time results with confidence, samples, and processing time
+- **Prediction History**: Scrollable list of recent predictions
+- **Text-to-Speech**: Manual text input with Turkish/English voice output
 
 ---
 
-## Quick Start
+## 🛠️ Tech Stack
+
+- **React Native (Expo)**: Cross-platform mobile framework
+- **TypeScript**: Type-safe development
+- **Axios**: HTTP client for API calls
+- **react-native-ble-plx**: Bluetooth Low Energy support
+- **expo-haptics**: Vibration feedback
+- **expo-speech**: Text-to-speech
+- **i18next**: Internationalization
+
+---
+
+## 🏃 Running the App
 
 ### Prerequisites
-- Node.js v18 or later
-- npm or yarn
-- Android Studio (for Android development)
-- Xcode (for iOS development, macOS only)
-- Expo CLI: `npm install -g expo-cli`
+- Node.js (v18+)
+- Android Studio (for Android)
+- Xcode (for iOS, macOS only)
 
-### Installation
+### Install Dependencies
+```bash
+npm install
+```
 
-1. **Navigate to mobile directory**
-   ```bash
-   cd mobile
-   ```
+### Run on Android
+```bash
+npm run android
+```
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
+### Run on iOS
+```bash
+npm run ios
+```
 
-3. **Configure environment variables**
-   ```bash
-   # Create .env file (see .env.example)
-   # Add your API credentials:
-   # EXPO_PUBLIC_API_URL=https://api.ybilgin.com
-   # EXPO_PUBLIC_API_KEY=your-api-key-here
-   ```
-
-4. **Start development server**
-   ```bash
-   npm start
-   ```
-
-5. **Run on device/emulator**
-   ```bash
-   # Android
-   npm run android
-   
-   # iOS (macOS only)
-   npm run ios
-   ```
+### Start Development Server
+```bash
+npm start
+```
 
 ---
 
-## Building APK
+## 📦 Building APK for Demo
 
-### Development APK (Quick)
+### Debug APK (Quick)
 ```bash
 cd android
-./gradlew assembleDebug
+.\gradlew assembleDebug
 ```
+
 Output: `android/app/build/outputs/apk/debug/app-debug.apk`
 
-### Release APK with EAS
+### Release APK (Optimized)
 ```bash
-# Install EAS CLI
-npm install -g eas-cli
-
-# Login to Expo account
-eas login
-
-# Build for Android
-eas build --platform android --profile preview
-
-# Build for iOS (requires Apple Developer account)
-eas build --platform ios --profile preview
+cd android
+.\gradlew assembleRelease
 ```
 
----
+Output: `android/app/build/outputs/apk/release/app-release.apk`
 
-## Usage
-
-### Simulator Mode (No Hardware)
-1. Launch app
-2. Go to "ASL Simulator" section
-3. Tap any letter button (A-Y)
-4. App generates 150 synthetic samples
-5. Prediction appears with confidence score
-6. TTS speaks the letter
-
-### Continuous Mode
-1. Enable "Continuous Mode" toggle
-2. Simulator sends letters sequentially
-3. Word builds in Prediction View
-4. After completion, TTS speaks full word
-5. Use Clear/Delete/Speak buttons
-
-### Quick Demo
-1. Go to "Quick Demo Mode"
-2. Enter custom word (using A-Y letters only)
-3. Tap "GO"
-4. App auto-simulates each letter
-5. Speaks detected word at end
-
-### Bluetooth Mode (Future)
-1. Ensure Bluetooth is enabled
-2. Tap "Scan for Devices"
-3. Select "ASL Glove" from list
-4. Connect
-5. Make ASL signs with glove
-6. View real-time predictions
+**Note**: For release builds, you need to configure signing keys in `android/app/build.gradle`.
 
 ---
 
-## Project Structure
+## 🔗 API Integration
+
+The app connects to a cloud-based ML API for predictions:
+
+- **Endpoint**: `https://api.ybilgin.com/predict`
+- **Model**: Random Forest (15 ASL letters)
+- **Response Time**: ~50ms
+- **Features**: 25 statistical features from 200 sensor samples
+
+---
+
+## 📱 Bluetooth Connection (Future)
+
+When the physical glove arrives:
+
+1. The app will scan for devices with "ASL" or "Glove" in the name
+2. Connect via Bluetooth Low Energy (BLE)
+3. Receive real-time sensor data (5 flex sensors)
+4. Send 200 samples (4 seconds at 50Hz) to cloud API
+5. Display prediction results
+
+**Current Status**: Bluetooth code is ready, waiting for hardware.
+
+---
+
+## 🌐 Simulator Mode
+
+For testing without hardware:
+
+1. Select a letter from the 15-button grid
+2. App simulates 200 samples with realistic noise
+3. Sends data to cloud API for prediction
+4. Displays result with confidence, samples, and time
+
+**Patterns**: Based on real ASL dataset, calibrated to our sensor range (0-1023).
+
+---
+
+## 📊 Model Performance
+
+- **Validation Accuracy**: 70-75% (Leave-One-User-Out)
+- **Real-World Confidence**: 85-95% with simulator
+- **Best Letters**: W (99%), B (97%), F (97%), V (93%)
+- **Challenging Letters**: S (27%), X (30%), C (32%), T (38%)
+
+---
+
+## 🎯 Demo Instructions (for Professor)
+
+1. **Launch App**: Open APK on Android device
+2. **Select Language**: Choose English or Turkish
+3. **Simulator Mode**: 
+   - Tap any letter button (e.g., "A")
+   - Watch prediction in real-time
+   - See confidence, samples, and processing time
+4. **Check History**: Scroll through recent predictions
+5. **Text-to-Speech**: Type any text and press "Speak"
+6. **Bluetooth Ready**: Show that BLE scanning is implemented (hardware pending)
+
+---
+
+## 📝 Project Structure
 
 ```
 mobile/
-├── App.tsx                          # Main app entry point
+├── App.tsx                          # Main app component
 ├── src/
 │   ├── components/
-│   │   ├── ConnectionManager.tsx    # Bluetooth connection
-│   │   ├── SimulatorControl.tsx     # Letter simulation
-│   │   ├── PredictionView.tsx       # Prediction display
-│   │   ├── QuickDemo.tsx            # Auto-demo mode
-│   │   ├── PredictionHistory.tsx    # History list
-│   │   └── Dropdown.tsx             # Settings dropdown
+│   │   ├── ConnectionManager.tsx   # Bluetooth connection
+│   │   ├── SimulatorControl.tsx    # Letter simulation
+│   │   ├── PredictionView.tsx      # Result display
+│   │   ├── PredictionHistory.tsx   # History list
+│   │   └── Dropdown.tsx            # Settings dropdown
 │   ├── services/
-│   │   └── apiService.ts            # Cloud API client
+│   │   └── apiService.ts           # Cloud API client
 │   ├── context/
-│   │   └── ThemeContext.tsx         # Theme management
+│   │   └── ThemeContext.tsx        # Theme management
 │   ├── locales/
-│   │   ├── en.json                  # English translations
-│   │   └── tr.json                  # Turkish translations
-│   ├── i18n/
-│   │   └── i18n.ts                  # i18n configuration
-│   └── assets/
-│       └── asl/                     # ASL sign images
+│   │   ├── en.json                 # English translations
+│   │   └── tr.json                 # Turkish translations
+│   └── i18n/
+│       └── i18n.ts                 # i18n configuration
 ├── android/                         # Android native code
-├── ios/                             # iOS native code
-├── .env                             # Environment variables
-├── app.json                         # Expo configuration
-├── eas.json                         # EAS Build configuration
 └── package.json                     # Dependencies
 ```
 
 ---
 
-## API Integration
+## 🐛 Troubleshooting
 
-The app communicates with a cloud-based ML API:
-
-- **Base URL**: `https://api.ybilgin.com`
-- **Authentication**: API Key (X-API-Key header)
-- **Endpoints**:
-  - `POST /predict` - Get ASL letter prediction
-  - `GET /health` - Check API status
-  - `GET /stats` - Get usage statistics
-
-See `API_CONFIG.md` and `ASL-ML-Inference-API/README.md` for details.
-
----
-
-## Model Performance
-
-Current model statistics:
-
-- **Supported Letters**: 15 (A, B, C, D, E, F, I, K, O, S, T, V, W, X, Y)
-- **Validation Accuracy**: 70-75% (Leave-One-User-Out)
-- **Real-World Confidence**: 85-95% with calibrated glove
-- **Best Performing**: W (99%), B (97%), F (97%), V (93%)
-- **Challenging**: S (27%), X (30%), C (32%), T (38%)
-- **Inference Time**: <50ms average
-- **Sample Requirement**: 150-200 samples per prediction
-
----
-
-## Troubleshooting
-
-### Build Errors
-
-**Gradle build fails:**
+### Build Fails
 ```bash
 cd android
-./gradlew clean
-./gradlew assembleDebug --info
+.\gradlew clean
+.\gradlew assembleDebug
 ```
 
-**Metro bundler issues:**
+### Metro Bundler Issues
 ```bash
 npx expo start --clear
 ```
 
-**Dependency conflicts:**
-```bash
-rm -rf node_modules
-npm install
-```
-
-### Runtime Issues
-
-**API not responding:**
-- Check `.env` file has correct API URL and key
-- Verify network connection
-- Check API status: `curl https://api.ybilgin.com/health`
-
-**Bluetooth permissions (Android):**
-Ensure `AndroidManifest.xml` includes:
+### Bluetooth Permissions
+Ensure Android Manifest includes:
 - `BLUETOOTH`
 - `BLUETOOTH_ADMIN`
 - `BLUETOOTH_SCAN`
 - `BLUETOOTH_CONNECT`
 - `ACCESS_FINE_LOCATION`
 
-**TTS not working:**
-- Check device volume
-- Verify TTS engine installed (Android Settings > Accessibility > Text-to-Speech)
-- Try different language
-
 ---
 
-## Environment Configuration
+## 🚀 Future Enhancements
 
-### Required Environment Variables
-
-Create `.env` file in mobile root:
-
-```env
-# API Configuration
-EXPO_PUBLIC_API_URL=https://api.ybilgin.com
-EXPO_PUBLIC_API_KEY=your-api-key-here
-```
-
-Get API key from project maintainer or generate one following `SECURITY_SETUP.md`.
-
----
-
-## Testing
-
-### Manual Testing Checklist
-- [ ] App launches without errors
-- [ ] Theme switching works (light/dark/system)
-- [ ] Language switching works (English/Turkish)
-- [ ] Simulator generates predictions
-- [ ] Predictions show correct confidence
-- [ ] TTS speaks letters correctly
-- [ ] Haptic feedback vibrates
-- [ ] History list updates
-- [ ] Continuous mode builds words
-- [ ] Quick Demo simulates words
-- [ ] API errors display properly
-
----
-
-## Deployment
-
-### Internal Testing
-1. Build debug APK
-2. Install on test devices
-3. Verify all features work
-4. Collect feedback
-
-### Production Release
-1. Update version in `package.json` and `app.json`
-2. Build release APK with EAS
-3. Test on multiple devices
-4. Submit to Google Play Store (Android) or App Store (iOS)
-
----
-
-## Known Issues
-
-1. **Bluetooth scanning**: Implemented but untested (awaiting hardware)
-2. **Model accuracy**: Lower than desired for some letters (S, X, C, T)
-3. **Offline mode**: Not yet implemented (requires TensorFlow Lite integration)
-
----
-
-## Future Enhancements
-
-- [ ] Connect to physical glove via Bluetooth
-- [ ] Add ASL tutorial mode with images/videos
-- [ ] Export prediction history to CSV
-- [ ] Offline mode with on-device ML model
-- [ ] Support for more ASL letters (requiring IMU data)
-- [ ] User accounts and cloud sync
+- [ ] Connect to real glove via Bluetooth
+- [ ] Add tutorial mode with ASL letter images
+- [ ] Export prediction history as CSV
+- [ ] Offline mode with TensorFlow Lite
+- [ ] Support for more ASL letters (26 total + hand orientation)
+- [ ] User authentication and cloud sync
 - [ ] Statistics dashboard
-- [ ] Custom word builder
-- [ ] Social sharing features
 
 ---
 
-## Related Projects
-
-- **Desktop App**: `../` - Cross-platform desktop application
-- **API Server**: `../ASL-ML-Inference-API/` - Cloud ML inference server
-- **Training Tools**: `../iot-sign-glove/` - Data collection and model training
-
----
-
-## Documentation
-
-- **API_CONFIG.md**: API setup instructions
-- **PROJECT_STATE.md**: Complete project documentation
-- **DATA_COLLECTION_GUIDE.md**: Data recording best practices
-
----
-
-## Academic Context
-
-This mobile app is part of a Computer Science graduation project focused on:
-- Mobile application development
-- Real-time gesture recognition
-- Cloud API integration
-- Cross-platform development
-- User experience design
-
----
-
-## License
+## 📄 License
 
 MIT License - Part of Computer Science Graduation Project
 
-**Author**: Yigit Alp Bilgin  
-**Year**: 2026
+**Author**: Yiğit Alp Bilgin  
+**Version**: 1.0.0  
+**Last Updated**: February 2026
 
-For questions or support, refer to PROJECT_STATE.md or contact the project team.
+
+
+
