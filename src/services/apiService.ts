@@ -1,19 +1,15 @@
-import axios from 'axios';
+/**
+ * API service for ASL ML Inference API.
+ * Sends normalized 0-1 sensor data to the cloud API.
+ */
 
-// Load from environment variables
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://api.ybilgin.com';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://api.ybilgin.com';
 const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 
-// Debug: Log API key status on load
-console.log('[apiService] API_BASE_URL:', API_BASE_URL);
-console.log('[apiService] API_KEY configured:', !!API_KEY && API_KEY !== 'your-api-key-here');
-if (!API_KEY || API_KEY === 'your-api-key-here') {
-  console.warn('[apiService] ⚠️ API_KEY not configured!');
-}
-
-export interface SensorData {
-  flex_sensors: number[][];
+export interface PredictionRequest {
+  flex_sensors: number[][] | number[];
   device_id?: string;
+  timestamp?: number;
 }
 
 export interface PredictionResponse {
@@ -25,95 +21,35 @@ export interface PredictionResponse {
   timestamp: number;
 }
 
-export interface HealthResponse {
-  status: string;
-  model_loaded: boolean;
-  model_name: string;
-  database_connected: boolean;
-  uptime_seconds: number;
-  authentication_enabled?: boolean;
-}
+const apiService = {
+  async predict(data: PredictionRequest): Promise<PredictionResponse> {
+    const response = await fetch(`${API_URL}/predict`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+      },
+      body: JSON.stringify({
+        flex_sensors: data.flex_sensors,
+        device_id: data.device_id ?? 'mobile-app',
+        timestamp: data.timestamp ?? Date.now() / 1000,
+      }),
+    });
 
-class ApiService {
-  async predict(sensorData: SensorData): Promise<PredictionResponse> {
-    try {
-      console.log(`Sending ${sensorData.flex_sensors.length} samples to API`);
-      console.log('First sample:', JSON.stringify(sensorData.flex_sensors[0]));
-      console.log('Last sample:', JSON.stringify(sensorData.flex_sensors[sensorData.flex_sensors.length - 1]));
-      console.log('Device ID:', sensorData.device_id);
-      
-      // Log sample statistics
-      const allValues = sensorData.flex_sensors.flat();
-      const avgCh0 = sensorData.flex_sensors.reduce((sum, s) => sum + s[0], 0) / sensorData.flex_sensors.length;
-      const avgCh1 = sensorData.flex_sensors.reduce((sum, s) => sum + s[1], 0) / sensorData.flex_sensors.length;
-      console.log('Avg CH0:', Math.round(avgCh0), 'Avg CH1:', Math.round(avgCh1));
-      
-      const response = await axios.post<PredictionResponse>(
-        `${API_BASE_URL}/predict`,
-        sensorData,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': API_KEY,
-          },
-          timeout: 5000, // 5 second timeout
-        }
-      );
-      
-      console.log('API Response:', response.data.letter, 'Confidence:', response.data.confidence);
-      console.log('All probabilities:', JSON.stringify(response.data.all_probabilities));
-      return response.data;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        // Handle specific error codes
-        if (error.response?.status === 401) {
-          throw new Error('Missing API Key. Configure EXPO_PUBLIC_API_KEY in .env');
-        }
-        if (error.response?.status === 403) {
-          throw new Error('Invalid API Key. Check your .env configuration');
-        }
-        if (error.response?.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a moment');
-        }
-        
-        throw new Error(
-          error.response?.data?.detail || 
-          error.message || 
-          'Prediction failed'
-        );
-      }
-      throw error;
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API error ${response.status}: ${errorText}`);
     }
-  }
 
-  async checkHealth(): Promise<HealthResponse> {
-    try {
-      const response = await axios.get<HealthResponse>(`${API_BASE_URL}/health`, {
-        timeout: 3000,
-      });
-      return response.data;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        throw new Error('API health check failed');
-      }
-      throw error;
-    }
-  }
+    return response.json();
+  },
 
-  /**
-   * Check if API is configured with a valid key
-   */
-  isConfigured(): boolean {
-    return !!API_KEY && API_KEY !== 'your-api-key-here';
-  }
+  async health(): Promise<{ status: string; model_name: string }> {
+    const response = await fetch(`${API_URL}/health`, {
+      headers: API_KEY ? { 'X-API-Key': API_KEY } : {},
+    });
+    return response.json();
+  },
+};
 
-  /**
-   * Get current API base URL
-   */
-  getBaseUrl(): string {
-    return API_BASE_URL;
-  }
-}
-
-export default new ApiService();
-
+export default apiService;
