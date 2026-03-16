@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -27,12 +27,15 @@ function fmt(value: number): string {
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SensorDisplayProps {
   currentSample: number[] | null;
+  currentImu?: [number, number, number, number] | null;
+  rawDataLog?: string[];
   isActive: boolean;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
-const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, isActive }) => {
+const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, currentImu, rawDataLog, isActive }) => {
   const { colors } = useTheme();
+  const [logExpanded, setLogExpanded] = useState(false);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
@@ -68,6 +71,46 @@ const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, isActive }
               </View>
             );
           })}
+        </View>
+      )}
+
+      {/* IMU Quaternion */}
+      {currentImu && (
+        <View style={[styles.imuSection, { borderTopColor: colors.borderColor }]}>
+          <Text style={[styles.imuTitle, { color: colors.textSecondary }]}>IMU Quaternion</Text>
+          <View style={styles.imuRow}>
+            {(['qw', 'qx', 'qy', 'qz'] as const).map((label, i) => (
+              <View key={label} style={[styles.imuCell, { backgroundColor: colors.bgPrimary }]}>
+                <Text style={[styles.imuLabel, { color: colors.textSecondary }]}>{label}</Text>
+                <Text style={[styles.imuValue, { color: colors.textPrimary }]}>
+                  {currentImu[i].toFixed(3)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Raw Data Log */}
+      {rawDataLog && rawDataLog.length > 0 && (
+        <View style={[styles.imuSection, { borderTopColor: colors.borderColor }]}>
+          <TouchableOpacity style={styles.logHeader} onPress={() => setLogExpanded(e => !e)} activeOpacity={0.7}>
+            <Text style={[styles.imuTitle, { color: colors.textSecondary }]}>
+              {logExpanded ? '▼' : '▶'} Raw Data Log
+            </Text>
+            <Text style={[styles.imuTitle, { color: colors.textSecondary }]}>
+              {rawDataLog.length} lines
+            </Text>
+          </TouchableOpacity>
+          {logExpanded && (
+            <ScrollView style={styles.logScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              {rawDataLog.map((line, i) => (
+                <Text key={i} style={[styles.logLine, { color: i === 0 ? colors.textPrimary : colors.textSecondary }]}>
+                  {line}
+                </Text>
+              ))}
+            </ScrollView>
+          )}
         </View>
       )}
 
@@ -111,6 +154,27 @@ const styles = StyleSheet.create({
   track:     { flex: 1, height: 18, borderRadius: 9, overflow: 'hidden' },
   fill:      { height: '100%', borderRadius: 9 },
   value:     { fontSize: 11, fontWeight: '600', fontFamily: 'monospace', width: 34, textAlign: 'right' },
+  imuSection: {
+    marginTop: 10, paddingTop: 8, borderTopWidth: 1, gap: 6,
+  },
+  imuTitle: {
+    fontSize: 11, fontWeight: '600', marginBottom: 4,
+  },
+  imuRow: {
+    flexDirection: 'row', gap: 6,
+  },
+  imuCell: {
+    flex: 1, padding: 6, borderRadius: 6, alignItems: 'center',
+  },
+  imuLabel: {
+    fontSize: 10, fontWeight: '600', marginBottom: 2,
+  },
+  imuValue: {
+    fontSize: 11, fontFamily: 'monospace', fontWeight: '600',
+  },
+  logHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  logScroll:  { maxHeight: 160, marginTop: 6 },
+  logLine:    { fontSize: 10, fontFamily: 'monospace', lineHeight: 16 },
   legend: {
     flexDirection: 'row', justifyContent: 'space-around',
     marginTop: 10, paddingTop: 8, borderTopWidth: 1,

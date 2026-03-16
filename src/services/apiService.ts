@@ -8,6 +8,7 @@ const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 
 export interface PredictionRequest {
   flex_sensors: number[][] | number[];
+  imu?: [number, number, number, number]; // [qw, qx, qy, qz] — for stage-2 IMU disambiguation
   device_id?: string;
   timestamp?: number;
 }
@@ -31,6 +32,7 @@ const apiService = {
       },
       body: JSON.stringify({
         flex_sensors: data.flex_sensors,
+        ...(data.imu ? { imu: data.imu } : {}),
         device_id: data.device_id ?? 'mobile-app',
         timestamp: data.timestamp ?? Date.now() / 1000,
       }),

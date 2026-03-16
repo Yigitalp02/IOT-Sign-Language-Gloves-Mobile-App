@@ -17,6 +17,8 @@
 @rem
 
 @if "%DEBUG%"=="" @echo off
+@rem Override JAVA_HOME to the installed JDK 21 (jdk-22 referenced by system variable does not exist)
+SET "JAVA_HOME=C:\Program Files\Java\jdk-21"
 @rem ##########################################################################
 @rem
 @rem  Gradle startup script for Windows

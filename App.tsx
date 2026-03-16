@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, SafeAreaView, Platform, StatusBar as RNStatusBar } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Speech from 'expo-speech';
@@ -7,6 +7,18 @@ import './src/i18n/i18n';
 import { useTranslation } from 'react-i18next';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import ConnectionManager from './src/components/ConnectionManager';
+import DigitalTwin, { DigitalTwinRef } from './src/components/DigitalTwin';
+
+// ── Quaternion helpers (same math as the desktop app / HandVisualization3D) ──
+type Quat = { w: number; x: number; y: number; z: number };
+const qMult = (a: Quat, b: Quat): Quat => ({
+  w: a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+  x: a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+  y: a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+  z: a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
+});
+const qInv = (q: Quat): Quat => ({ w: q.w, x: -q.x, y: -q.y, z: -q.z });
+const TWIN_EMA_ALPHA = 0.25; // EMA smoothing (0=frozen, 1=raw)
 import CalibrationManager from './src/components/CalibrationManager';
 import SimulatorControl from './src/components/SimulatorControl';
 import { normalizeSample, isRawThermistorData, DEFAULT_BASELINES, DEFAULT_MAXBENDS } from './src/utils/normalization';
@@ -58,7 +70,19 @@ function AppContent() {
   
   // Real-time sensor display — throttled to ~10 fps to prevent UI thrashing at 50 Hz
   const [currentSample, setCurrentSample] = useState<number[] | null>(null);
+  const [currentImu, setCurrentImu] = useState<[number, number, number, number] | null>(null);
+  const currentImuRef = React.useRef<[number, number, number, number] | null>(null);
   const lastDisplayUpdateRef = React.useRef(0);
+  // Raw data log — last 10 lines, throttled to ~5 fps
+  const [rawDataLog, setRawDataLog] = useState<string[]>([]);
+  const lastRawLogUpdateRef = React.useRef(0);
+
+  // Digital Twin (WebGL WebView)
+  const [twinVisible, setTwinVisible]   = useState(false);
+  const digitalTwinRef                  = useRef<DigitalTwinRef>(null);
+  const twinRefQuatRef                  = useRef<Quat | null>(null);
+  const twinEmaRef                      = useRef<number[] | null>(null);
+  const twinLastSentRef                 = useRef(0); // throttle to ~10 fps
   // CalibrationManager registers a handler here to receive every raw sample at full 50 Hz
   const calibSampleHandlerRef = React.useRef<((data: number[]) => void) | null>(null);
   const onRegisterCalibSampleHandler = useCallback(
@@ -235,6 +259,7 @@ function AppContent() {
     try {
       const response = await apiService.predict({
         flex_sensors: samples,
+        ...(currentImuRef.current ? { imu: currentImuRef.current } : {}),
         device_id: connectedDevice || 'mobile-simulator',
       });
 
@@ -324,29 +349,78 @@ function AppContent() {
     makePredictionRef.current = makePrediction;
   }, [makePrediction]);
 
-  // Handle sensor data from simulator or real BLE device
+  // Handle sensor data from simulator or real WiFi device
   const handleSensorData = useCallback((data: number[]) => {
     lastSampleTimeRef.current = Date.now();
 
-    // ── Normalize BLE glove data ─────────────────────────────────────────────
+    // ── Split flex (0:5) and IMU quaternion (5:9) ─────────────────────────────
+    const flexData = data.slice(0, 5);
+    if (data.length >= 9) {
+      const imu: [number, number, number, number] = [data[5], data[6], data[7], data[8]];
+      currentImuRef.current = imu;
+    }
+
+    // ── Raw data log (throttled ~5 fps) ───────────────────────────────────────
+    const nowLog = Date.now();
+    if (nowLog - lastRawLogUpdateRef.current >= 200) {
+      lastRawLogUpdateRef.current = nowLog;
+      const flexPart = flexData.map(v => Math.round(v)).join(',');
+      const imuPart = data.length >= 9
+        ? ` | qw:${data[5].toFixed(4)} qx:${data[6].toFixed(4)} qy:${data[7].toFixed(4)} qz:${data[8].toFixed(4)}`
+        : '';
+      const line = `${flexPart}${imuPart}`;
+      setRawDataLog(prev => [line, ...prev].slice(0, 10));
+    }
+
+    // ── Forward to Digital Twin WebView (~10 fps) ─────────────────────────────
+    const nowTwin = Date.now();
+    if (twinVisible && digitalTwinRef.current && nowTwin - twinLastSentRef.current >= 100) {
+      twinLastSentRef.current = nowTwin;
+
+      // EMA-smooth raw flex values
+      if (!twinEmaRef.current) twinEmaRef.current = [...flexData];
+      twinEmaRef.current = twinEmaRef.current.map((v, i) => v + TWIN_EMA_ALPHA * (flexData[i] - v));
+
+      // Normalise flex using calibration (same as main pipeline)
+      const calB = calibBaselinesRef.current;
+      const calM = calibMaxbendsRef.current;
+      const normalizedFlex = twinEmaRef.current.map((v, i) =>
+        Math.max(0, Math.min(1, (calB[i] - v) / (calB[i] - calM[i])))
+      );
+
+      // Compute relative IMU and remap axes to Unity's coordinate frame
+      const imuRaw = currentImuRef.current;
+      let imuXYZ = { x: 0, y: 0, z: 0 };
+      if (imuRaw) {
+        const imuQuat: Quat = { w: imuRaw[0], x: imuRaw[1], y: imuRaw[2], z: imuRaw[3] };
+        if (!twinRefQuatRef.current) twinRefQuatRef.current = imuQuat;
+        const qRel = qMult(qInv(twinRefQuatRef.current), imuQuat);
+        // Axis remap: BNO055 frame → Unity axes
+        imuXYZ = { x: qRel.y, y: qRel.z, z: qRel.x };
+      }
+
+      digitalTwinRef.current.sendSensorData(normalizedFlex, imuXYZ);
+    }
+
+    // ── Normalize WiFi glove data ─────────────────────────────────────────────
     // Simulator already sends normalized 0-1 values.
-    // A real BLE glove sends raw thermistor ADC values (e.g. 2700, 1650 …).
+    // A real WiFi glove sends raw thermistor ADC values (e.g. 2700, 1650 …).
     const isRawGlove =
-      connectedDeviceRef.current !== null || isRawThermistorData(data);
+      connectedDeviceRef.current !== null || isRawThermistorData(flexData);
 
     const processedData = isRawGlove
-      ? normalizeSample(data, calibBaselinesRef.current, calibMaxbendsRef.current)
-      : data;
+      ? normalizeSample(flexData, calibBaselinesRef.current, calibMaxbendsRef.current)
+      : flexData;
 
-    // ── Feed raw sample to CalibrationManager at full 50 Hz (no throttle) ────
-    if (isRawGlove) calibSampleHandlerRef.current?.(data);
+    // ── Feed raw flex sample to CalibrationManager at full 50 Hz (no throttle) ──
+    if (isRawGlove) calibSampleHandlerRef.current?.(flexData);
 
     // ── Throttled display update (~10 fps) ────────────────────────────────────
-    // Show the normalized values so the sensor bars always reflect 0-1 scale.
     const now = Date.now();
     if (now - lastDisplayUpdateRef.current >= 100) {
       lastDisplayUpdateRef.current = now;
       setCurrentSample(processedData);
+      if (currentImuRef.current) setCurrentImu(currentImuRef.current);
     }
 
     // ── QuickDemo: legacy batch mode (keeps exact QuickDemo behaviour) ────────
@@ -407,7 +481,10 @@ function AppContent() {
     rollingBufferRef.current     = [];
     stablePredRef.current        = { letter: '', count: 0 };
     letterUsedRef.current        = false;
-    lastSpokenLetterRef.current  = ''; // reset so next start speaks immediately
+    lastSpokenLetterRef.current  = '';
+    currentImuRef.current        = null;
+    setCurrentImu(null);
+    setRawDataLog([]);
   };
 
   return (
@@ -462,11 +539,46 @@ function AppContent() {
                 stablePredRef.current       = { letter: '', count: 0 };
                 letterUsedRef.current       = false;
                 lastSpokenLetterRef.current = '';
+                currentImuRef.current       = null;
+                setCurrentImu(null);
+                setRawDataLog([]);
+                twinRefQuatRef.current      = null;
+                twinEmaRef.current          = null;
               }}
               onDataReceived={handleSensorData}
             />
 
-            {/* Glove calibration — only visible when a BLE device is connected */}
+            {/* Digital Twin toggle button */}
+            <TouchableOpacity
+              style={[
+                styles.twinToggleBtn,
+                {
+                  backgroundColor: twinVisible ? 'rgba(99,102,241,0.12)' : colors.bgSecondary,
+                  borderColor:     twinVisible ? 'rgba(99,102,241,0.5)'  : colors.borderColor,
+                },
+              ]}
+              onPress={() => {
+                if (!twinVisible) {
+                  twinRefQuatRef.current = null;
+                  twinEmaRef.current     = null;
+                }
+                setTwinVisible(v => !v);
+              }}
+            >
+              <Text style={[styles.twinToggleTxt, { color: twinVisible ? '#818cf8' : colors.textSecondary }]}>
+                {twinVisible ? '🖼️ Hide 3D Twin' : '🖼️ 3D Digital Twin'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Digital Twin WebGL WebView */}
+            {twinVisible && (
+              <DigitalTwin
+                ref={digitalTwinRef}
+                onClose={() => setTwinVisible(false)}
+              />
+            )}
+
+            {/* Glove calibration — only visible when a WiFi device is connected */}
             <CalibrationManager
               onRegisterSampleHandler={onRegisterCalibSampleHandler}
               isConnected={connectedDevice !== null}
@@ -566,6 +678,8 @@ function AppContent() {
 
             <SensorDisplay
               currentSample={currentSample}
+              currentImu={currentImu}
+              rawDataLog={rawDataLog}
               isActive={isSimulating || connectedDevice !== null}
             />
 
@@ -797,5 +911,16 @@ const styles = StyleSheet.create({
   },
   modeDescription: {
     fontSize: 10,
+  },
+  twinToggleBtn: {
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  twinToggleTxt: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
