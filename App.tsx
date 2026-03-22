@@ -83,6 +83,10 @@ function AppContent() {
   const twinRefQuatRef                  = useRef<Quat | null>(null);
   const twinEmaRef                      = useRef<number[] | null>(null);
   const twinLastSentRef                 = useRef(0); // throttle to ~10 fps
+  // Auto-range: tracks per-finger min/max seen in the session so the twin
+  // can show movement even before the user runs formal calibration.
+  // Convention: higher ADC value = finger straight (same as normalization.ts).
+  const twinAutoRangeRef                = useRef<{ min: number[]; max: number[] } | null>(null);
   // CalibrationManager registers a handler here to receive every raw sample at full 50 Hz
   const calibSampleHandlerRef = React.useRef<((data: number[]) => void) | null>(null);
   const onRegisterCalibSampleHandler = useCallback(
@@ -381,12 +385,38 @@ function AppContent() {
       if (!twinEmaRef.current) twinEmaRef.current = [...flexData];
       twinEmaRef.current = twinEmaRef.current.map((v, i) => v + TWIN_EMA_ALPHA * (flexData[i] - v));
 
-      // Normalise flex using calibration (same as main pipeline)
+      // Update per-finger observed min/max for auto-range normalization
+      if (!twinAutoRangeRef.current) {
+        twinAutoRangeRef.current = {
+          min: [...twinEmaRef.current],
+          max: [...twinEmaRef.current],
+        };
+      } else {
+        twinAutoRangeRef.current.min = twinAutoRangeRef.current.min.map((v, i) =>
+          Math.min(v, twinEmaRef.current![i])
+        );
+        twinAutoRangeRef.current.max = twinAutoRangeRef.current.max.map((v, i) =>
+          Math.max(v, twinEmaRef.current![i])
+        );
+      }
+
+      // Normalise flex:
+      //   • Calibrated  → use captured baseline/maxbend (accurate)
+      //   • Uncalibrated → auto-range from observed session min/max so the
+      //     twin shows relative movement even before formal calibration.
+      //     Convention: higher ADC = straight (0), lower ADC = bent (1).
       const calB = calibBaselinesRef.current;
       const calM = calibMaxbendsRef.current;
-      const normalizedFlex = twinEmaRef.current.map((v, i) =>
-        Math.max(0, Math.min(1, (calB[i] - v) / (calB[i] - calM[i])))
-      );
+      const autoRange = twinAutoRangeRef.current;
+      const normalizedFlex = twinEmaRef.current.map((v, i) => {
+        if (isCalibrated) {
+          return Math.max(0, Math.min(1, (calB[i] - v) / (calB[i] - calM[i])));
+        }
+        // Auto-range: expand as more movement is seen (min 50-count gap to avoid noise)
+        const span = autoRange.max[i] - autoRange.min[i];
+        if (span < 50) return 0; // not enough range yet — keep neutral
+        return Math.max(0, Math.min(1, (autoRange.max[i] - v) / span));
+      });
 
       // Compute relative IMU and remap axes to Unity's coordinate frame
       const imuRaw = currentImuRef.current;
@@ -395,8 +425,9 @@ function AppContent() {
         const imuQuat: Quat = { w: imuRaw[0], x: imuRaw[1], y: imuRaw[2], z: imuRaw[3] };
         if (!twinRefQuatRef.current) twinRefQuatRef.current = imuQuat;
         const qRel = qMult(qInv(twinRefQuatRef.current), imuQuat);
-        // Axis remap: BNO055 frame → Unity axes
-        imuXYZ = { x: qRel.y, y: qRel.z, z: qRel.x };
+        // Axis remap: BNO055 frame → Unity axes (correctly-mounted sensor).
+        // Negate qRel.y (→ Unity X) to fix pitch inversion after sensor correction.
+        imuXYZ = { x: -qRel.y, y: qRel.z, z: -qRel.x };
       }
 
       digitalTwinRef.current.sendSensorData(normalizedFlex, imuXYZ);
@@ -544,6 +575,7 @@ function AppContent() {
                 setRawDataLog([]);
                 twinRefQuatRef.current      = null;
                 twinEmaRef.current          = null;
+                twinAutoRangeRef.current    = null;
               }}
               onDataReceived={handleSensorData}
             />
@@ -559,8 +591,9 @@ function AppContent() {
               ]}
               onPress={() => {
                 if (!twinVisible) {
-                  twinRefQuatRef.current = null;
-                  twinEmaRef.current     = null;
+                  twinRefQuatRef.current   = null;
+                  twinEmaRef.current       = null;
+                  twinAutoRangeRef.current = null;
                 }
                 setTwinVisible(v => !v);
               }}

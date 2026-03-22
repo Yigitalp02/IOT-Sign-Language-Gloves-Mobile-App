@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { DEFAULT_BASELINES, DEFAULT_MAXBENDS } from '../utils/normalization';
 
@@ -8,26 +8,51 @@ const CAPTURE_SAMPLES = 100; // 2 seconds at 50 Hz
 const FINGER_NAMES    = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
 
 // ── Types ────────────────────────────────────────────────────────────────────
-type CaptureStep = 'idle' | 'straight' | 'bent' | 'done';
+type CaptureStep = 'idle' | 'straight' | 'bent';
+type Mode        = 'per-finger' | 'full-hand';
+
+interface FingerCalib {
+  straightSamples: number[];
+  bentSamples:     number[];
+  baseline:        number | null;
+  maxbend:         number | null;
+}
 
 interface CalibrationManagerProps {
-  /**
-   * Parent calls this to register/unregister a handler that receives every
-   * raw sample at full 50 Hz — completely decoupled from display throttling.
-   */
   onRegisterSampleHandler: (fn: ((data: number[]) => void) | null) => void;
-  /** Whether a BLE device is currently connected. */
-  isConnected: boolean;
-  /** Current calibration straight (baseline) values. */
-  baselines: number[];
-  /** Current calibration bent (maxbend) values. */
-  maxbends: number[];
-  /** True once both steps have been completed at least once. */
-  isCalibrated: boolean;
-  /** Called when both capture steps are done. */
-  onCalibrate: (baselines: number[], maxbends: number[]) => void;
-  /** Called when user wants to redo calibration. */
-  onReset: () => void;
+  isConnected:   boolean;
+  baselines:     number[];
+  maxbends:      number[];
+  isCalibrated:  boolean;
+  onCalibrate:   (baselines: number[], maxbends: number[]) => void;
+  onReset:       () => void;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const emptyFinger = (): FingerCalib => ({
+  straightSamples: [], bentSamples: [], baseline: null, maxbend: null,
+});
+const emptyAll = (): FingerCalib[] => Array(5).fill(null).map(emptyFinger);
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+function computeCalib(fc: FingerCalib): { baseline: number; maxbend: number } {
+  const s = median(fc.straightSamples);
+  const b = median(fc.bentSamples);
+  const hi = Math.max(s, b);
+  const lo = Math.min(s, b);
+  const range = hi - lo;
+  return {
+    baseline: Math.round(hi + range * 0.05),
+    maxbend:  Math.round(lo - range * 0.05),
+  };
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -42,50 +67,95 @@ export default function CalibrationManager({
 }: CalibrationManagerProps) {
   const { colors } = useTheme();
 
-  const [step, setStep]         = useState<CaptureStep>('idle');
-  const [progress, setProgress] = useState(0);
+  const [mode,          setMode]          = useState<Mode>('per-finger');
+  const [step,          setStep]          = useState<CaptureStep>('idle');
+  const [activeFinger,  setActiveFinger]  = useState(0);
+  const [fingerData,    setFingerData]    = useState<FingerCalib[]>(emptyAll());
+  const [progress,      setProgress]      = useState(0);
 
-  // Keep stable refs to avoid stale closures inside the registered handler
-  const onCalibrateRef        = useRef(onCalibrate);
-  const capturedBaselinesRef  = useRef<number[] | null>(null);
-  const captureBufferRef      = useRef<number[][]>([]);
-  const stepRef               = useRef<CaptureStep>('idle');
+  // Stable refs to avoid stale closures in the registered handler
+  const onCalibrateRef   = useRef(onCalibrate);
+  const stepRef          = useRef<CaptureStep>('idle');
+  const modeRef          = useRef<Mode>('per-finger');
+  const activeFingerRef  = useRef(0);
+  const fingerDataRef    = useRef<FingerCalib[]>(emptyAll());
 
-  useEffect(() => { onCalibrateRef.current = onCalibrate; }, [onCalibrate]);
-  // Keep stepRef in sync so the callback (which captures stepRef, not step) stays accurate
-  useEffect(() => { stepRef.current = step; }, [step]);
+  useEffect(() => { onCalibrateRef.current  = onCalibrate;   }, [onCalibrate]);
+  useEffect(() => { stepRef.current         = step;          }, [step]);
+  useEffect(() => { modeRef.current         = mode;          }, [mode]);
+  useEffect(() => { activeFingerRef.current = activeFinger;  }, [activeFinger]);
+  useEffect(() => { fingerDataRef.current   = fingerData;    }, [fingerData]);
 
-  // ── Register / unregister sample handler during active capture ────────────
+  // ── Register / unregister sample handler ─────────────────────────────────
   useEffect(() => {
-    if (step !== 'straight' && step !== 'bent') {
-      onRegisterSampleHandler(null);
-      return;
-    }
+    if (step === 'idle') { onRegisterSampleHandler(null); return; }
 
     onRegisterSampleHandler((sample: number[]) => {
-      if (sample.length !== 5) return;
-      captureBufferRef.current.push(sample);
-      const count = captureBufferRef.current.length;
-      setProgress(count);
+      if (sample.length < 5) return;
 
-      if (count >= CAPTURE_SAMPLES) {
-        const avg = Array.from({ length: 5 }, (_, i) =>
-          Math.round(
-            captureBufferRef.current.reduce((sum, s) => sum + s[i], 0) / CAPTURE_SAMPLES,
-          ),
-        );
+      const currentStep   = stepRef.current;
+      const currentMode   = modeRef.current;
+      const finger        = activeFingerRef.current;
 
-        captureBufferRef.current = [];
-        setProgress(0);
+      if (currentMode === 'full-hand') {
+        // Collect samples for all 5 channels in parallel
+        setFingerData(prev => {
+          const next = prev.map((fc, i) => {
+            const arr = currentStep === 'straight'
+              ? [...fc.straightSamples, sample[i]]
+              : [...fc.bentSamples,     sample[i]];
+            return currentStep === 'straight'
+              ? { ...fc, straightSamples: arr }
+              : { ...fc, bentSamples:     arr };
+          });
 
-        if (stepRef.current === 'straight') {
-          capturedBaselinesRef.current = avg;
-          setStep('bent');
-        } else {
-          onCalibrateRef.current(capturedBaselinesRef.current!, avg);
-          capturedBaselinesRef.current = null;
-          setStep('done');
-        }
+          const count = currentStep === 'straight'
+            ? next[0].straightSamples.length
+            : next[0].bentSamples.length;
+          setProgress(count);
+
+          if (count >= CAPTURE_SAMPLES) {
+            setStep('idle');
+            setProgress(0);
+            if (currentStep === 'bent') {
+              // Both steps done — compute and finalise
+              const calibrated = next.map(fc => ({ ...fc, ...computeCalib(fc) }));
+              // Fire apply immediately so results persist
+              const newBaselines = calibrated.map(fc => fc.baseline!);
+              const newMaxbends  = calibrated.map(fc => fc.maxbend!);
+              setTimeout(() => onCalibrateRef.current(newBaselines, newMaxbends), 0);
+              return calibrated;
+            }
+          }
+          return next;
+        });
+
+      } else {
+        // Per-finger: only collect for the active channel
+        setFingerData(prev => {
+          const next = [...prev];
+          const fc   = next[finger];
+          const arr  = currentStep === 'straight'
+            ? [...fc.straightSamples, sample[finger]]
+            : [...fc.bentSamples,     sample[finger]];
+
+          next[finger] = currentStep === 'straight'
+            ? { ...fc, straightSamples: arr }
+            : { ...fc, bentSamples:     arr };
+
+          const count = arr.length;
+          setProgress(count);
+
+          if (count >= CAPTURE_SAMPLES) {
+            setStep('idle');
+            setProgress(0);
+            if (currentStep === 'bent') {
+              const result = computeCalib(next[finger]);
+              next[finger] = { ...next[finger], ...result };
+            }
+          }
+          return next;
+        });
       }
     });
 
@@ -93,40 +163,91 @@ export default function CalibrationManager({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, onRegisterSampleHandler]);
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  const startCapture = useCallback((captureStep: 'straight' | 'bent') => {
-    captureBufferRef.current = [];
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const startCapture = useCallback((s: 'straight' | 'bent') => {
     setProgress(0);
-    setStep(captureStep);
+    setStep(s);
+  }, []);
+
+  const switchMode = useCallback((m: Mode) => {
+    if (step !== 'idle') return;
+    setMode(m);
+    setFingerData(emptyAll());
+    setActiveFinger(0);
+    setProgress(0);
+    onReset();
+  }, [step, onReset]);
+
+  const resetFinger = useCallback((i: number) => {
+    setFingerData(prev => { const n = [...prev]; n[i] = emptyFinger(); return n; });
+    setActiveFinger(i);
+    setStep('idle');
+    setProgress(0);
   }, []);
 
   const handleReset = useCallback(() => {
-    captureBufferRef.current      = [];
-    capturedBaselinesRef.current  = null;
-    setProgress(0);
+    setFingerData(emptyAll());
+    setActiveFinger(0);
     setStep('idle');
+    setProgress(0);
     onReset();
   }, [onReset]);
 
+  const applyCalibration = useCallback(() => {
+    const newBaselines = fingerData.map((fc, i) => fc.baseline ?? baselines[i]);
+    const newMaxbends  = fingerData.map((fc, i) => fc.maxbend  ?? maxbends[i]);
+    onCalibrate(newBaselines, newMaxbends);
+  }, [fingerData, baselines, maxbends, onCalibrate]);
+
   // ── Derived ───────────────────────────────────────────────────────────────
-  const progressPct  = Math.round((progress / CAPTURE_SAMPLES) * 100);
-  const isCapturing  = step === 'straight' || step === 'bent';
-  const step1Done    = step === 'bent' || step === 'done' || isCalibrated;
-  const step2Done    = step === 'done' || isCalibrated;
+  const isCapturing    = step !== 'idle';
+  const progressPct    = Math.round((progress / CAPTURE_SAMPLES) * 100);
+  const currentFD      = fingerData[activeFinger];
+  const allCalibrated  = fingerData.every(fc => fc.baseline !== null);
+  const anyCalibrated  = fingerData.some(fc => fc.baseline !== null);
+  const calibCount     = fingerData.filter(fc => fc.baseline !== null).length;
+
+  // What sample count to use for full-hand progress display
+  const fhProgress = step === 'straight'
+    ? fingerData[0].straightSamples.length
+    : fingerData[0].bentSamples.length;
+
+  // For per-finger: whether the two capture steps are done
+  const pfHasStraight = currentFD.straightSamples.length >= CAPTURE_SAMPLES;
+  const pfHasBent     = currentFD.bentSamples.length     >= CAPTURE_SAMPLES;
+  // For full-hand
+  const fhHasStraight = fingerData[0].straightSamples.length >= CAPTURE_SAMPLES;
+  const fhHasBent     = fingerData[0].bentSamples.length     >= CAPTURE_SAMPLES;
+
+  const hasStraight = mode === 'per-finger' ? pfHasStraight : fhHasStraight;
+  const hasBent     = mode === 'per-finger' ? pfHasBent     : fhHasBent;
 
   if (!isConnected) return null;
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Sub-components ────────────────────────────────────────────────────────
+  const ProgressBar = ({ pct, color }: { pct: number; color: string }) => (
+    <View style={styles.progressWrap}>
+      <View style={[styles.progressTrack, { backgroundColor: colors.bgSecondary }]}>
+        <View style={[styles.progressFill, { width: `${pct}%` as any, backgroundColor: color }]} />
+      </View>
+      <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>{pct}%</Text>
+    </View>
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>Glove Calibration</Text>
-        <View style={[
-          styles.badge,
-          { backgroundColor: isCalibrated ? 'rgba(52,211,153,0.12)' : 'rgba(251,191,36,0.12)' },
-        ]}>
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>Sensor Calibrator</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            {mode === 'per-finger' ? 'Calibrate each finger individually' : 'Calibrate all fingers at once'}
+          </Text>
+        </View>
+        <View style={[styles.badge, {
+          backgroundColor: isCalibrated ? 'rgba(52,211,153,0.12)' : 'rgba(251,191,36,0.12)',
+        }]}>
           <View style={[styles.badgeDot, { backgroundColor: isCalibrated ? '#34d399' : '#fbbf24' }]} />
           <Text style={[styles.badgeText, { color: isCalibrated ? '#34d399' : '#fbbf24' }]}>
             {isCalibrated ? 'Calibrated' : 'Not calibrated'}
@@ -134,127 +255,278 @@ export default function CalibrationManager({
         </View>
       </View>
 
-      {/* Intro hint */}
-      {!isCalibrated && step === 'idle' && (
-        <Text style={[styles.hint, { color: colors.textSecondary }]}>
-          Calibrate once per session so the app knows your hand's range of motion.
-          Keep each position steady while capturing.
-        </Text>
+      {/* ── Mode toggle ─────────────────────────────────────────────────── */}
+      <View style={[styles.modeTabs, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
+        {(['per-finger', 'full-hand'] as Mode[]).map(m => (
+          <TouchableOpacity
+            key={m}
+            style={[styles.modeTab, mode === m && { backgroundColor: colors.accentPrimary }]}
+            onPress={() => switchMode(m)}
+            disabled={isCapturing}
+          >
+            <Text style={[styles.modeTabTxt, {
+              color: mode === m ? colors.accentText : colors.textSecondary,
+              opacity: isCapturing && mode !== m ? 0.4 : 1,
+            }]}>
+              {m === 'per-finger' ? '☝️ Per-Finger' : '✋ Full Hand'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* ── Per-Finger: finger selector tabs ────────────────────────────── */}
+      {mode === 'per-finger' && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.fingerTabsScroll}>
+          <View style={styles.fingerTabs}>
+            {FINGER_NAMES.map((name, i) => {
+              const fc           = fingerData[i];
+              const done         = fc.baseline !== null;
+              const isActive     = activeFinger === i;
+              return (
+                <TouchableOpacity
+                  key={i}
+                  style={[
+                    styles.fingerTab,
+                    { borderColor: isActive ? colors.accentPrimary : colors.borderColor },
+                    done && { backgroundColor: 'rgba(52,211,153,0.1)', borderColor: '#34d399' },
+                    isActive && !done && { backgroundColor: `${colors.accentPrimary}18` },
+                  ]}
+                  onPress={() => step === 'idle' && setActiveFinger(i)}
+                  disabled={isCapturing}
+                >
+                  <Text style={[styles.fingerTabName, {
+                    color: done ? '#34d399' : isActive ? colors.accentPrimary : colors.textSecondary,
+                  }]}>
+                    {name}
+                  </Text>
+                  {done && <Text style={styles.fingerTabCheck}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
       )}
 
-      {/* ── Step 1: Straight ─────────────────────────────────────────────── */}
-      <View style={styles.stepRow}>
-        <View style={styles.stepLeft}>
-          <View style={[styles.stepNum, {
-            backgroundColor: step1Done ? '#34d399' : colors.accentPrimary,
-          }]}>
-            <Text style={styles.stepNumText}>{step1Done ? '✓' : '1'}</Text>
-          </View>
-          <View>
-            <Text style={[styles.stepLabel, { color: colors.textPrimary }]}>Hold hand fully straight</Text>
-            {step1Done && (
-              <Text style={[styles.capturedNote, { color: '#34d399' }]}>
-                {capturedBaselinesRef.current
-                  ? capturedBaselinesRef.current.join(', ')
-                  : baselines.join(', ')}
-              </Text>
-            )}
-          </View>
-        </View>
-
-        {!isCalibrated && !step1Done && (
-          step !== 'straight' ? (
+      {/* ── Calibration steps box ────────────────────────────────────────── */}
+      <View style={[styles.stepsBox, { borderColor: colors.accentPrimary, backgroundColor: `${colors.bgSecondary}80` }]}>
+        {/* Box header */}
+        <View style={styles.stepsHeader}>
+          <Text style={[styles.stepsTitle, { color: colors.textPrimary }]}>
+            {mode === 'full-hand'
+              ? 'Calibrating: All Fingers'
+              : `Calibrating: ${FINGER_NAMES[activeFinger]}`}
+          </Text>
+          {mode === 'per-finger' && currentFD.baseline !== null && (
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: colors.accentPrimary }]}
-              onPress={() => startCapture('straight')}
+              style={[styles.redoBtn, { borderColor: '#ef4444' }]}
+              onPress={() => resetFinger(activeFinger)}
               disabled={isCapturing}
             >
-              <Text style={[styles.btnText, { color: colors.accentText }]}>Capture</Text>
+              <Text style={[styles.redoBtnTxt, { color: '#ef4444' }]}>Redo</Text>
             </TouchableOpacity>
-          ) : (
-            <View style={styles.progressWrap}>
-              <View style={[styles.progressTrack, { backgroundColor: colors.bgSecondary }]}>
-                <View style={[styles.progressFill, {
-                  width: `${progressPct}%`,
-                  backgroundColor: colors.accentPrimary,
-                }]} />
-              </View>
-              <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>{progressPct}%</Text>
-            </View>
-          )
-        )}
-      </View>
-
-      {/* ── Step 2: Bent ─────────────────────────────────────────────────── */}
-      <View style={styles.stepRow}>
-        <View style={styles.stepLeft}>
-          <View style={[styles.stepNum, {
-            backgroundColor: step2Done
-              ? '#34d399'
-              : step === 'bent' ? colors.accentPrimary
-              : colors.bgSecondary,
-          }]}>
-            <Text style={[styles.stepNumText, {
-              color: (step2Done || step === 'bent') ? '#fff' : colors.textSecondary,
-            }]}>
-              {step2Done ? '✓' : '2'}
-            </Text>
-          </View>
-          <View>
-            <Text style={[styles.stepLabel, { color: step1Done ? colors.textPrimary : colors.textSecondary }]}>
-              Make a fist (all fingers bent)
-            </Text>
-            {step2Done && (
-              <Text style={[styles.capturedNote, { color: '#34d399' }]}>
-                {maxbends.join(', ')}
-              </Text>
-            )}
-          </View>
+          )}
+          {mode === 'full-hand' && allCalibrated && (
+            <TouchableOpacity
+              style={[styles.redoBtn, { borderColor: '#ef4444' }]}
+              onPress={handleReset}
+              disabled={isCapturing}
+            >
+              <Text style={[styles.redoBtnTxt, { color: '#ef4444' }]}>Reset All</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {step === 'bent' && (
-          <View style={styles.progressWrap}>
-            <View style={[styles.progressTrack, { backgroundColor: colors.bgSecondary }]}>
-              <View style={[styles.progressFill, {
-                width: `${progressPct}%`,
-                backgroundColor: '#34d399',
-              }]} />
+        {/* Step 1: Straight */}
+        <View style={[styles.stepCard, {
+          backgroundColor: colors.bgCard,
+          borderColor: step === 'straight' ? '#34d399' : colors.borderColor,
+          borderWidth: step === 'straight' ? 2 : 1,
+        }]}>
+          <View style={styles.stepCardRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.stepCardTitle, { color: colors.textPrimary }]}>
+                Step 1 — Straighten {mode === 'full-hand' ? 'All Fingers' : FINGER_NAMES[activeFinger]}
+              </Text>
+              <Text style={[styles.stepCardHint, { color: colors.textSecondary }]}>
+                {mode === 'full-hand'
+                  ? 'Hold hand flat, all fingers fully extended'
+                  : `Keep ${FINGER_NAMES[activeFinger]} fully straight`}
+              </Text>
             </View>
-            <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>{progressPct}%</Text>
+            <TouchableOpacity
+              style={[styles.captureBtn, {
+                backgroundColor: hasStraight ? '#34d399' : colors.accentPrimary,
+                opacity: (!isConnected || isCapturing || hasStraight) ? 0.6 : 1,
+              }]}
+              onPress={() => startCapture('straight')}
+              disabled={!isConnected || isCapturing || hasStraight}
+            >
+              <Text style={styles.captureBtnTxt}>
+                {hasStraight ? '✓' : 'Record'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {step === 'straight' && (
+            <ProgressBar
+              pct={mode === 'full-hand'
+                ? Math.round((fhProgress / CAPTURE_SAMPLES) * 100)
+                : progressPct}
+              color={colors.accentPrimary}
+            />
+          )}
+        </View>
+
+        {/* Step 2: Bent */}
+        <View style={[styles.stepCard, {
+          backgroundColor: colors.bgCard,
+          borderColor: step === 'bent' ? '#34d399' : colors.borderColor,
+          borderWidth: step === 'bent' ? 2 : 1,
+          opacity: hasStraight ? 1 : 0.5,
+        }]}>
+          <View style={styles.stepCardRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.stepCardTitle, { color: colors.textPrimary }]}>
+                Step 2 — Bend {mode === 'full-hand' ? 'All Fingers' : FINGER_NAMES[activeFinger]}
+              </Text>
+              <Text style={[styles.stepCardHint, { color: colors.textSecondary }]}>
+                {mode === 'full-hand'
+                  ? 'Make a fist, all fingers fully curled'
+                  : `Curl ${FINGER_NAMES[activeFinger]} fully bent`}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.captureBtn, {
+                backgroundColor: hasBent ? '#34d399' : colors.accentPrimary,
+                opacity: (!isConnected || !hasStraight || isCapturing || hasBent) ? 0.6 : 1,
+              }]}
+              onPress={() => startCapture('bent')}
+              disabled={!isConnected || !hasStraight || isCapturing || hasBent}
+            >
+              <Text style={styles.captureBtnTxt}>
+                {hasBent ? '✓' : 'Record'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {step === 'bent' && (
+            <ProgressBar
+              pct={mode === 'full-hand'
+                ? Math.round((fhProgress / CAPTURE_SAMPLES) * 100)
+                : progressPct}
+              color="#34d399"
+            />
+          )}
+        </View>
+
+        {/* Result preview for completed finger (per-finger) */}
+        {mode === 'per-finger' && currentFD.baseline !== null && (
+          <View style={[styles.resultBox, { backgroundColor: 'rgba(52,211,153,0.1)', borderColor: 'rgba(52,211,153,0.3)' }]}>
+            <Text style={[styles.resultTitle, { color: '#34d399' }]}>
+              {FINGER_NAMES[activeFinger]} calibrated ✓
+            </Text>
+            <Text style={[styles.resultValue, { color: colors.textSecondary }]}>
+              Straight: {currentFD.baseline}  ·  Bent: {currentFD.maxbend}
+            </Text>
+          </View>
+        )}
+
+        {/* Result preview for full-hand */}
+        {mode === 'full-hand' && allCalibrated && (
+          <View style={[styles.resultBox, { backgroundColor: 'rgba(52,211,153,0.1)', borderColor: 'rgba(52,211,153,0.3)' }]}>
+            <Text style={[styles.resultTitle, { color: '#34d399' }]}>All fingers calibrated ✓</Text>
+            {fingerData.map((fc, i) => (
+              <Text key={i} style={[styles.resultValue, { color: colors.textSecondary }]}>
+                {FINGER_NAMES[i]}: {fc.baseline} → {fc.maxbend}
+              </Text>
+            ))}
           </View>
         )}
       </View>
 
-      {/* ── Calibrated summary ────────────────────────────────────────────── */}
-      {isCalibrated && (
-        <View style={[styles.summary, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
+      {/* ── Apply section ────────────────────────────────────────────────── */}
+      {anyCalibrated && (
+        <View style={[styles.applyBox, {
+          backgroundColor: allCalibrated ? 'rgba(52,211,153,0.1)' : 'rgba(99,102,241,0.1)',
+          borderColor:     allCalibrated ? 'rgba(52,211,153,0.3)' : 'rgba(99,102,241,0.3)',
+        }]}>
+          <Text style={[styles.applyTitle, {
+            color: allCalibrated ? '#34d399' : colors.accentPrimary,
+          }]}>
+            {allCalibrated
+              ? 'All Fingers Calibrated'
+              : `${calibCount}/5 Fingers Calibrated`}
+          </Text>
+
+          {!allCalibrated && (
+            <Text style={[styles.applyHint, { color: colors.textSecondary }]}>
+              You can apply now — uncalibrated fingers use defaults.
+            </Text>
+          )}
+
+          {/* Per-finger summary */}
+          {mode === 'per-finger' && (
+            <View style={styles.applyTable}>
+              {FINGER_NAMES.map((name, i) => {
+                const fc   = fingerData[i];
+                const done = fc.baseline !== null;
+                return (
+                  <View key={i} style={styles.applyRow}>
+                    <Text style={[styles.applyRowName, { color: done ? colors.textPrimary : colors.textSecondary, opacity: done ? 1 : 0.6 }]}>
+                      {name}
+                    </Text>
+                    <Text style={[styles.applyRowVal, { color: done ? '#34d399' : colors.textSecondary, opacity: done ? 1 : 0.6 }]}>
+                      {done
+                        ? `${fc.baseline} → ${fc.maxbend}`
+                        : `${baselines[i]} → ${maxbends[i]} (default)`}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          <View style={styles.applyBtnRow}>
+            <TouchableOpacity
+              style={[styles.applyBtn, {
+                backgroundColor: allCalibrated ? '#34d399' : colors.accentPrimary,
+                flex: 2,
+              }]}
+              onPress={applyCalibration}
+            >
+              <Text style={[styles.applyBtnTxt, { color: '#fff' }]}>
+                {allCalibrated ? 'Apply All' : `Apply ${calibCount} Finger${calibCount > 1 ? 's' : ''}`}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.applyBtn, {
+                backgroundColor: colors.bgSecondary,
+                borderWidth: 1,
+                borderColor: colors.borderColor,
+                flex: 1,
+              }]}
+              onPress={handleReset}
+            >
+              <Text style={[styles.applyBtnTxt, { color: colors.textPrimary }]}>Reset All</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ── Calibrated summary table ─────────────────────────────────────── */}
+      {isCalibrated && !anyCalibrated && (
+        <View style={[styles.summaryTable, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
           <View style={styles.summaryHeaderRow}>
             <Text style={[styles.summaryHeader, { color: colors.textSecondary }]}>Finger</Text>
-            <Text style={[styles.summaryHeader, { color: colors.textSecondary }]}>Straight</Text>
-            <Text style={[styles.summaryHeader, { color: colors.textSecondary }]}>Bent</Text>
+            <Text style={[styles.summaryHeader, { color: '#34d399' }]}>Straight</Text>
+            <Text style={[styles.summaryHeader, { color: '#fb923c' }]}>Bent</Text>
           </View>
           {FINGER_NAMES.map((name, i) => (
             <View key={name} style={styles.summaryRow}>
               <Text style={[styles.summaryCell, { color: colors.textSecondary }]}>{name}</Text>
-              <Text style={[styles.summaryCell, { color: '#34d399', fontWeight: '600' }]}>
-                {baselines[i]}
-              </Text>
-              <Text style={[styles.summaryCell, { color: '#fb923c', fontWeight: '600' }]}>
-                {maxbends[i]}
-              </Text>
+              <Text style={[styles.summaryCell, { color: '#34d399', fontWeight: '600' }]}>{baselines[i]}</Text>
+              <Text style={[styles.summaryCell, { color: '#fb923c', fontWeight: '600' }]}>{maxbends[i]}</Text>
             </View>
           ))}
         </View>
-      )}
-
-      {/* Recalibrate */}
-      {isCalibrated && (
-        <TouchableOpacity
-          style={[styles.resetBtn, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}
-          onPress={handleReset}
-        >
-          <Text style={[styles.resetBtnText, { color: colors.textSecondary }]}>Recalibrate</Text>
-        </TouchableOpacity>
       )}
     </View>
   );
@@ -262,34 +534,60 @@ export default function CalibrationManager({
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: {
-    padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 16, gap: 10,
-  },
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-  },
-  title:        { fontSize: 15, fontWeight: '600' },
-  badge:        { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  badgeDot:     { width: 6, height: 6, borderRadius: 3 },
-  badgeText:    { fontSize: 11, fontWeight: '700' },
-  hint:         { fontSize: 12, lineHeight: 18 },
-  stepRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  stepLeft:     { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  stepNum:      { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  stepNumText:  { color: '#fff', fontSize: 12, fontWeight: '700' },
-  stepLabel:    { fontSize: 13, fontWeight: '500' },
-  capturedNote: { fontSize: 10, marginTop: 2 },
-  btn:          { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
-  btnText:      { fontSize: 13, fontWeight: '600' },
-  progressWrap: { width: 90, gap: 3 },
-  progressTrack:{ height: 6, borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 3 },
-  progressLabel:{ fontSize: 10, textAlign: 'right' },
-  summary:      { borderRadius: 8, borderWidth: 1, padding: 10, gap: 4 },
-  summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  summaryHeader:{ fontSize: 10, fontWeight: '600', flex: 1 },
-  summaryRow:   { flexDirection: 'row', justifyContent: 'space-between' },
-  summaryCell:  { fontSize: 12, flex: 1 },
-  resetBtn:     { padding: 10, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
-  resetBtnText: { fontSize: 13 },
+  container:        { padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 16, gap: 12 },
+  headerRow:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  title:            { fontSize: 15, fontWeight: '700' },
+  subtitle:         { fontSize: 11, marginTop: 2 },
+  badge:            { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
+  badgeDot:         { width: 6, height: 6, borderRadius: 3 },
+  badgeText:        { fontSize: 10, fontWeight: '700' },
+
+  modeTabs:         { flexDirection: 'row', borderRadius: 10, borderWidth: 1, overflow: 'hidden' },
+  modeTab:          { flex: 1, paddingVertical: 9, alignItems: 'center' },
+  modeTabTxt:       { fontSize: 13, fontWeight: '600' },
+
+  fingerTabsScroll: { marginHorizontal: -4 },
+  fingerTabs:       { flexDirection: 'row', gap: 6, paddingHorizontal: 4 },
+  fingerTab:        { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, alignItems: 'center', minWidth: 62 },
+  fingerTabName:    { fontSize: 12, fontWeight: '600' },
+  fingerTabCheck:   { fontSize: 10, color: '#34d399', marginTop: 2 },
+
+  stepsBox:         { borderRadius: 10, borderWidth: 2, padding: 12, gap: 8 },
+  stepsHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  stepsTitle:       { fontSize: 13, fontWeight: '700', flex: 1 },
+  redoBtn:          { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1 },
+  redoBtnTxt:       { fontSize: 11, fontWeight: '600' },
+
+  stepCard:         { borderRadius: 8, padding: 10, gap: 6 },
+  stepCardRow:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stepCardTitle:    { fontSize: 12, fontWeight: '600' },
+  stepCardHint:     { fontSize: 10, marginTop: 2 },
+  captureBtn:       { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 6 },
+  captureBtnTxt:    { color: '#fff', fontSize: 12, fontWeight: '700' },
+
+  progressWrap:     { gap: 3 },
+  progressTrack:    { height: 5, borderRadius: 3, overflow: 'hidden' },
+  progressFill:     { height: '100%', borderRadius: 3 },
+  progressLabel:    { fontSize: 9, textAlign: 'right' },
+
+  resultBox:        { borderRadius: 8, borderWidth: 1, padding: 10, gap: 3 },
+  resultTitle:      { fontSize: 12, fontWeight: '700' },
+  resultValue:      { fontSize: 10, fontFamily: 'monospace' },
+
+  applyBox:         { borderRadius: 10, borderWidth: 1, padding: 12, gap: 10 },
+  applyTitle:       { fontSize: 14, fontWeight: '700' },
+  applyHint:        { fontSize: 11 },
+  applyTable:       { gap: 4 },
+  applyRow:         { flexDirection: 'row', gap: 8 },
+  applyRowName:     { fontSize: 11, fontWeight: '600', width: 52 },
+  applyRowVal:      { fontSize: 11, fontFamily: 'monospace', flex: 1 },
+  applyBtnRow:      { flexDirection: 'row', gap: 8 },
+  applyBtn:         { padding: 12, borderRadius: 8, alignItems: 'center' },
+  applyBtnTxt:      { fontSize: 14, fontWeight: '600' },
+
+  summaryTable:     { borderRadius: 8, borderWidth: 1, padding: 10, gap: 4 },
+  summaryHeaderRow: { flexDirection: 'row', marginBottom: 4 },
+  summaryHeader:    { fontSize: 10, fontWeight: '600', flex: 1 },
+  summaryRow:       { flexDirection: 'row' },
+  summaryCell:      { fontSize: 12, flex: 1 },
 });

@@ -55,9 +55,11 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
       sendSensorData: (flex, imu) => {
         if (!loaded || !webViewRef.current) return;
         const payload = JSON.stringify({ type: 'sensorData', flex, imu });
-        // injectJavaScript runs in the page context — postMessage reaches Unity
+        // react-native-webview intercepts window.postMessage and routes it to
+        // onMessage (React Native side) instead of Unity's window event listener.
+        // dispatchEvent bypasses that interception and fires directly on the page.
         webViewRef.current.injectJavaScript(
-          `window.postMessage(${payload}, '*'); true;`,
+          `(function(){window.dispatchEvent(new MessageEvent('message',{data:${payload},origin:window.location.origin}))})();true;`,
         );
       },
     }));

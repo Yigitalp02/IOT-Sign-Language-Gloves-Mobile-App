@@ -13,9 +13,15 @@ const ASL_SIGNS: { [key: string]: any } = {
   D: require('../../assets/asl/D.png'),
   E: require('../../assets/asl/E.png'),
   F: require('../../assets/asl/F.png'),
+  G: require('../../assets/asl/G.png'),
+  H: require('../../assets/asl/H.png'),
   I: require('../../assets/asl/I.png'),
   K: require('../../assets/asl/K.png'),
+  L: require('../../assets/asl/L.png'),
   O: require('../../assets/asl/O.png'),
+  P: require('../../assets/asl/P.png'),
+  Q: require('../../assets/asl/Q.png'),
+  R: require('../../assets/asl/R.png'),
   S: require('../../assets/asl/S.png'),
   T: require('../../assets/asl/T.png'),
   V: require('../../assets/asl/V.png'),
@@ -212,18 +218,9 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
         <View style={[styles.letterCircle, { borderColor: confidenceColor, backgroundColor: `${confidenceColor}20` }]}>
           <Text style={[styles.letterText, { color: confidenceColor }]}>{prediction.letter}</Text>
         </View>
-        
-        <View style={styles.confidence}>
-          <Text style={[styles.confidenceLabel, { color: colors.textSecondary }]}>
-            {t('prediction.confidence')}
-          </Text>
-          <Text style={[styles.confidenceValue, { color: confidenceColor }]}>
-            {confidencePercent}%
-          </Text>
-        </View>
       </View>
 
-      {/* ASL Sign Image for single letter */}
+      {/* ASL Sign Image + Confidence inline below */}
       {ASL_SIGNS[prediction.letter] && (
         <View style={styles.singleLetterSignContainer}>
           <Image 
@@ -235,7 +232,8 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
             resizeMode="contain"
           />
           <Text style={[styles.signHintText, { color: colors.textSecondary }]}>
-            ASL Sign for "{prediction.letter}"
+            {'Confidence: '}
+            <Text style={{ color: confidenceColor, fontWeight: '600' }}>{confidencePercent}%</Text>
           </Text>
         </View>
       )}
@@ -329,18 +327,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
-  },
-  confidence: {
-    alignItems: 'center',
-  },
-  confidenceLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  confidenceValue: {
-    fontSize: 32,
-    fontWeight: '700',
   },
   metadata: {
     flexDirection: 'row',
