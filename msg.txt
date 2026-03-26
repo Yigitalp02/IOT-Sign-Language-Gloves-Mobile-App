@@ -1,0 +1,27 @@
+Fix Unity WebGL local server for production APK
+
+The bundled digital twin was broken in signed release builds due to
+several independent issues that only manifest outside the Metro dev
+environment:
+
+- ERR_CLEARTEXT_NOT_PERMITTED: add network_security_config.xml that
+  explicitly permits HTTP cleartext to localhost/127.0.0.1 so the
+  in-app TCP server (port 8788) is reachable from the WebView on
+  Android 9+ devices where cleartext is blocked by default
+- Large-file RST abort: replace single socket.write(5 MB) + destroy()
+  with 256 KB chunked writes + socket.end() so Android does not RST
+  the connection before the WebView finishes receiving the WASM/data
+  files (5.5 MB and 4.3 MB respectively)
+- expo-asset migration: replace Image.resolveAssetSource() with
+  Asset.fromModule().downloadAsync() so binary .unityweb assets
+  resolve correctly from the APK bundle when no Metro dev server is
+  running; add expo-asset and expo-file-system as explicit dependencies
+- WASM MIME type: serve .wasm.unityweb as application/octet-stream
+  instead of application/wasm — the file is gzip-compressed so the
+  browser's WebAssembly streaming compiler rejects it on stricter
+  WebView versions; Unity's own JS loader handles decompression
+- WebView props: add domStorageEnabled, mixedContentMode="always",
+  and allowFileAccess for Unity WebGL compatibility in release mode
+- 90-second timeout: show an actionable error message instead of the
+  loading spinner hanging indefinitely if Unity fails to initialise
+- Update app icons to new logo (icon.png, adaptive-icon.png, splash)

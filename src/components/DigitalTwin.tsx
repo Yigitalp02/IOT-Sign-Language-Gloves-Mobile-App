@@ -49,6 +49,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
     const [prepareProgress, setProgress] = useState(0);  // 0-5 files
     const [error, setError]           = useState<string | null>(null);
     const [activeUri, setActiveUri]   = useState('');
+    const loadTimeoutRef              = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Expose sendSensorData ─────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -87,6 +88,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
     };
 
     const handleUnload = () => {
+      if (loadTimeoutRef.current) { clearTimeout(loadTimeoutRef.current); loadTimeoutRef.current = null; }
       if (mode === 'local') stopWebGLServer();
       setLoaded(false);
       setIsLoading(false);
@@ -211,15 +213,42 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
               ref={webViewRef}
               source={{ uri: activeUri }}
               style={styles.webView}
-              originWhitelist={['*', 'http://localhost:*']}
+              originWhitelist={['*', 'http://localhost:*', 'file://*']}
               javaScriptEnabled
+              domStorageEnabled
+              allowFileAccess
               allowsInlineMediaPlayback
+              mixedContentMode="always"
               mediaPlaybackRequiresUserAction={false}
-              onLoadStart={() => { setIsLoading(true); setError(null); }}
-              onLoadEnd={() => setIsLoading(false)}
+              thirdPartyCookiesEnabled={false}
+              onLoadStart={() => {
+                setIsLoading(true);
+                setError(null);
+                // Safety timeout — show an error if Unity never fires onLoadEnd
+                if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+                loadTimeoutRef.current = setTimeout(() => {
+                  setIsLoading(false);
+                  setError(
+                    'Unity WebGL timed out (90 s).\n' +
+                    'Try the Remote (Desktop) mode, or check that your device ' +
+                    'supports WebAssembly (Android 8+ recommended).'
+                  );
+                }, 90_000);
+              }}
+              onLoadEnd={() => {
+                setIsLoading(false);
+                if (loadTimeoutRef.current) { clearTimeout(loadTimeoutRef.current); loadTimeoutRef.current = null; }
+              }}
               onError={e => {
                 setIsLoading(false);
-                setError(`Load error: ${e.nativeEvent.description}`);
+                if (loadTimeoutRef.current) { clearTimeout(loadTimeoutRef.current); loadTimeoutRef.current = null; }
+                setError(`WebView error: ${e.nativeEvent.description}`);
+              }}
+              onHttpError={e => {
+                // HTTP 4xx/5xx from our local server
+                if (e.nativeEvent.statusCode !== 404) {
+                  setError(`HTTP ${e.nativeEvent.statusCode}: ${e.nativeEvent.url}`);
+                }
               }}
             />
           </View>

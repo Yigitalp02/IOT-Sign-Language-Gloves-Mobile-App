@@ -8,43 +8,40 @@
 
 import TcpSocket from 'react-native-tcp-socket';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Image } from 'react-native';
+import { Asset } from 'expo-asset';
 import { Buffer } from 'buffer';
 
 /**
- * Resolve any Metro asset reference (number ID or descriptor object) to a
- * local file URI that expo-file-system can read.
+ * Resolve any Metro asset reference to a local file URI that expo-file-system
+ * can read synchronously.
  *
- * Strategy:
- *  - Image.resolveAssetSource() works for every asset type and returns the
- *    correct Metro HTTP URL in dev builds (http://10.0.2.2:8081/assets/…).
- *  - We download that URL once into cacheDirectory using a stable filename
- *    derived from the cache key, then reuse it on subsequent calls.
- *  - For production builds the URI may be a file:// path; we copyAsync in
- *    that case.
+ * Strategy (works in BOTH dev and production APK):
+ *  - expo-asset's Asset.fromModule() + downloadAsync() handles all build
+ *    environments correctly:
+ *      Dev build   → downloads from the Metro HTTP server.
+ *      Production  → extracts the bundled file into the app's cache folder.
+ *  - Image.resolveAssetSource() was the old approach; it breaks in production
+ *    because it returns a Metro localhost URL that doesn't exist without the
+ *    dev server running.
  */
 async function moduleToLocalUri(module: unknown, cacheKey: string): Promise<string | null> {
   try {
-    const source = Image.resolveAssetSource(module as Parameters<typeof Image.resolveAssetSource>[0]);
-    if (!source?.uri) {
-      console.warn('[WebGLServer] resolveAssetSource returned no URI for', cacheKey);
+    const asset = Asset.fromModule(module as number);
+    if (!asset.downloaded) {
+      await asset.downloadAsync();
+    }
+    if (!asset.localUri) {
+      console.warn('[WebGLServer] expo-asset returned no localUri for', cacheKey);
       return null;
     }
 
+    // Copy to a stable, predictable cache path so subsequent loads are instant.
     const cacheUri = `${FileSystem.cacheDirectory}webgl_${cacheKey}`;
-
     const info = await FileSystem.getInfoAsync(cacheUri);
-    if (info.exists) {
-      return cacheUri;
+    if (!info.exists) {
+      await FileSystem.copyAsync({ from: asset.localUri, to: cacheUri });
     }
-
-    if (source.uri.startsWith('http')) {
-      const result = await FileSystem.downloadAsync(source.uri, cacheUri);
-      return result.uri;
-    } else {
-      await FileSystem.copyAsync({ from: source.uri, to: cacheUri });
-      return cacheUri;
-    }
+    return cacheUri;
   } catch (e) {
     console.warn('[WebGLServer] moduleToLocalUri failed for', cacheKey, ':', e);
     return null;
@@ -90,10 +87,14 @@ const ASSET_ENTRIES = [
     cacheKey: 'framework.unityweb',
   },
   {
+    // The .unityweb file is gzip-compressed WASM (Unity Decompression Fallback).
+    // Serving as application/wasm causes WebAssembly.instantiateStreaming() to
+    // reject the compressed bytes on stricter WebView versions.
+    // Use application/octet-stream so Unity's JS loader decompresses first.
     urlPath:  '/Build/WebGLBuilMobile.wasm.unityweb',
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     module:   require('../../assets/webgl/Build/WebGLBuilMobile.wasm.unityweb'),
-    mime:     'application/wasm',
+    mime:     'application/octet-stream',
     cacheKey: 'wasm.unityweb',
   },
 ];
@@ -134,16 +135,25 @@ export async function prepareWebGLAssets(
 
   const map: Record<string, string> = {};
   const total = ASSET_ENTRIES.length;
+  const failed: string[] = [];
+
   for (let i = 0; i < total; i++) {
     const entry = ASSET_ENTRIES[i];
     const localUri = await moduleToLocalUri(entry.module, entry.cacheKey);
     if (localUri) {
       map[entry.urlPath] = localUri;
+      console.log('[WebGLServer] Prepared', entry.cacheKey, '→', localUri);
     } else {
+      failed.push(entry.urlPath);
       console.warn('[WebGLServer] Could not resolve asset for', entry.urlPath);
     }
     onProgress?.(i + 1, total);
   }
+
+  if (failed.length > 0) {
+    throw new Error(`WebGL assets missing: ${failed.join(', ')}`);
+  }
+
   setFileMap(map);
   setAssetsReady(true);
 }
@@ -161,6 +171,16 @@ function mimeFor(urlPath: string): string {
   return entry?.mime ?? 'application/octet-stream';
 }
 
+/** Write a Buffer to a socket, resolving when the kernel accepted the data. */
+function socketWrite(socket: any, data: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    socket.write(data, undefined, (err?: Error | null) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 async function serveRequest(socket: any, rawRequest: string): Promise<void> {
   const urlPath   = parseUrlPath(rawRequest);
   const localPath = urlPath === '/' ? '/index.html' : urlPath;
@@ -169,17 +189,17 @@ async function serveRequest(socket: any, rawRequest: string): Promise<void> {
   console.log('[WebGLServer] Request:', localPath, localUri ? 'found' : 'NOT FOUND');
 
   if (!localUri) {
-    socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+    try { socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n'); } catch { /* ignore */ }
     socket.destroy();
     return;
   }
 
   try {
-    const b64   = await FileSystem.readAsStringAsync(localUri, {
+    const b64  = await FileSystem.readAsStringAsync(localUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    const body  = Buffer.from(b64, 'base64');
-    const mime  = mimeFor(localPath);
+    const body = Buffer.from(b64, 'base64');
+    const mime = mimeFor(localPath);
     const header = Buffer.from(
       `HTTP/1.1 200 OK\r\n` +
       `Content-Type: ${mime}\r\n` +
@@ -191,20 +211,25 @@ async function serveRequest(socket: any, rawRequest: string): Promise<void> {
 
     console.log('[WebGLServer] Sending', localPath, body.length, 'bytes');
 
-    // Combine header + body in one write so socket.destroy() only fires
-    // after ALL bytes are confirmed flushed to the native layer.
-    await new Promise<void>((resolve, reject) => {
-      socket.write(Buffer.concat([header, body]), undefined, (err?: Error | null) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    // Send header first.
+    await socketWrite(socket, header);
+
+    // Stream body in 256 KB chunks.
+    // A single socket.write(5 MB) callback fires when data enters the kernel
+    // send buffer — NOT when the client has received it. If socket.destroy()
+    // is called immediately after, Android sends an RST that aborts the large
+    // transfer. Chunking + socket.end() (graceful FIN) prevents this.
+    const CHUNK = 256 * 1024;
+    for (let offset = 0; offset < body.length; offset += CHUNK) {
+      await socketWrite(socket, body.slice(offset, Math.min(offset + CHUNK, body.length)));
+    }
+
+    // Graceful half-close: queues a FIN after the last chunk; the kernel
+    // delivers all buffered data before the FIN reaches the client.
+    socket.end();
   } catch (err) {
     console.warn('[WebGLServer] Failed to serve', localPath, err);
-    try {
-      socket.write('HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n');
-    } catch { /* ignore */ }
-  } finally {
+    try { socket.write('HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n'); } catch { /* ignore */ }
     socket.destroy();
   }
 }
