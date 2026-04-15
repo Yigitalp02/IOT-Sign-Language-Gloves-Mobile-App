@@ -19,23 +19,21 @@ function barColor(value: number): string {
   return '#ef4444';                   // red   — bent / flexed
 }
 
-/** Format normalized value for display */
-function fmt(value: number): string {
-  return value.toFixed(2);
-}
-
 // ── Types ──────────────────────────────────────────────────────────────────
 interface SensorDisplayProps {
   currentSample: number[] | null;
+  /** Raw ADC flex values from the glove (integers like 2640). When present,
+   *  shown next to the bars instead of the normalized 0–1 value. */
+  rawFlexSample?: number[] | null;
   currentImu?: [number, number, number, number] | null;
   rawDataLog?: string[];
   isActive: boolean;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
-const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, currentImu, rawDataLog, isActive }) => {
+const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, rawFlexSample, currentImu, rawDataLog, isActive }) => {
   const { colors } = useTheme();
-  const [logExpanded, setLogExpanded] = useState(false);
+  const [logExpanded, setLogExpanded] = useState(true);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
@@ -52,8 +50,16 @@ const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, currentImu
         <View style={styles.rows}>
           {currentSample.map((value, i) => {
             const clampedValue = Math.max(0, Math.min(1, value));
-            const widthPct     = `${clampedValue * 100}%` as const;
-            const color        = barColor(clampedValue);
+            // Bar represents how OPEN/straight the finger is:
+            //   straight (value=0) → full bar (100%)   green
+            //   bent     (value=1) → empty bar (0%)    red
+            const widthPct = `${(1 - clampedValue) * 100}%` as const;
+            const color    = barColor(clampedValue);
+            // Show raw ADC integer when available (real glove), else normalized float
+            const rawVal   = rawFlexSample?.[i];
+            const displayLabel = rawVal != null
+              ? String(Math.round(rawVal))
+              : clampedValue.toFixed(2);
             return (
               <View key={i} style={styles.row}>
                 {/* Finger label */}
@@ -66,8 +72,8 @@ const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, currentImu
                   <View style={[styles.fill, { width: widthPct, backgroundColor: color }]} />
                 </View>
 
-                {/* Value */}
-                <Text style={[styles.value, { color: colors.textPrimary }]}>{fmt(clampedValue)}</Text>
+                {/* Value — raw ADC integer or normalized float */}
+                <Text style={[styles.value, { color: colors.textPrimary }]}>{displayLabel}</Text>
               </View>
             );
           })}
@@ -117,9 +123,9 @@ const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, currentImu
       {/* Legend */}
       {currentSample && currentSample.length > 0 && (
         <View style={[styles.legend, { borderTopColor: colors.borderColor }]}>
-          <LegendItem color="#10b981" label="Straight (0–0.33)" />
-          <LegendItem color="#fbbf24" label="Partial (0.34–0.66)" />
-          <LegendItem color="#ef4444" label="Bent (0.67–1)" />
+          <LegendItem color="#10b981" label="Straight (full)" />
+          <LegendItem color="#fbbf24" label="Partial" />
+          <LegendItem color="#ef4444" label="Bent (empty)" />
         </View>
       )}
     </View>
@@ -153,7 +159,7 @@ const styles = StyleSheet.create({
   label:     { fontSize: 11, fontWeight: '600', width: 46 },
   track:     { flex: 1, height: 18, borderRadius: 9, overflow: 'hidden' },
   fill:      { height: '100%', borderRadius: 9 },
-  value:     { fontSize: 11, fontWeight: '600', fontFamily: 'monospace', width: 34, textAlign: 'right' },
+  value:     { fontSize: 11, fontWeight: '600', fontFamily: 'monospace', width: 42, textAlign: 'right' },
   imuSection: {
     marginTop: 10, paddingTop: 8, borderTopWidth: 1, gap: 6,
   },

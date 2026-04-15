@@ -262,7 +262,24 @@ export async function startWebGLServer(): Promise<string> {
 
     server.on('error', (err: Error) => {
       setServer(null);
-      reject(err);
+      // EADDRINUSE means the native server is still bound from a previous JS
+      // reload (Metro fast-refresh restarts the JS context but keeps the native
+      // layer alive). The server is still serving on the port, so we can just
+      // return the origin without creating a new listener.
+      //
+      // On Android, react-native-tcp-socket may surface this as:
+      //   err.code    = undefined / 'bind failed'
+      //   err.message = 'bind failed: EADDRINUSE (Address already in use)'
+      // so we check both the code property AND the message string.
+      const isAddrInUse =
+        (err as NodeJS.ErrnoException).code === 'EADDRINUSE' ||
+        err.message?.includes('EADDRINUSE');
+      if (isAddrInUse) {
+        console.log('[WebGLServer] Port already in use — reusing existing native server');
+        resolve(WEBGL_ORIGIN);
+      } else {
+        reject(err);
+      }
     });
   });
 }

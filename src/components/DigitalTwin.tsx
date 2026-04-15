@@ -26,18 +26,22 @@ export interface DigitalTwinRef {
   sendSensorData: (
     flex: number[],
     imu: { x: number; y: number; z: number },
+    rawQuat?: { w: number; x: number; y: number; z: number } | null,
+    motion?: { lx: number; ly: number; lz: number } | null,
+    gyro?: { gx: number; gy: number; gz: number } | null,
   ) => void;
 }
 
 interface DigitalTwinProps {
   onClose?: () => void;
+  onRecalibrate?: () => void;
 }
 
 type Mode = 'local' | 'remote';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
-  ({ onClose }, ref) => {
+  ({ onClose, onRecalibrate }, ref) => {
     const { colors } = useTheme();
     const webViewRef = useRef<WebView>(null);
 
@@ -53,9 +57,13 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
 
     // ── Expose sendSensorData ─────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
-      sendSensorData: (flex, imu) => {
+      sendSensorData: (flex, imu, rawQuat, motion, gyro) => {
         if (!loaded || !webViewRef.current) return;
-        const payload = JSON.stringify({ type: 'sensorData', flex, imu });
+        const packet: Record<string, unknown> = { type: 'sensorData', flex, imu };
+        if (rawQuat) packet.rawQuat = rawQuat;
+        if (motion)  packet.motion  = motion;
+        if (gyro)    packet.gyro    = gyro;
+        const payload = JSON.stringify(packet);
         // react-native-webview intercepts window.postMessage and routes it to
         // onMessage (React Native side) instead of Unity's window event listener.
         // dispatchEvent bypasses that interception and fires directly on the page.
@@ -176,7 +184,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
           </View>
         )}
 
-        {/* Load / Unload button */}
+        {/* Load / Unload + Re-calibrate buttons */}
         {!loaded ? (
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: colors.accentPrimary, opacity: preparing ? 0.6 : 1 }]}
@@ -190,12 +198,33 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
             )}
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity
-            style={[styles.btn, { backgroundColor: 'rgba(239,68,68,0.1)', borderColor: '#ef4444', borderWidth: 1 }]}
-            onPress={handleUnload}
-          >
-            <Text style={[styles.btnTxt, { color: '#ef4444' }]}>Unload Twin</Text>
-          </TouchableOpacity>
+          <View style={styles.btnRow}>
+            {/* Re-calibrate: resets the reference quaternion so the current
+                hand pose becomes the new neutral orientation */}
+            <TouchableOpacity
+              style={[styles.btn, styles.btnFlex, {
+                backgroundColor: 'rgba(99,102,241,0.1)',
+                borderColor: 'rgba(99,102,241,0.4)',
+                borderWidth: 1,
+              }]}
+              onPress={onRecalibrate}
+              title="Set the current hand orientation as the new neutral position"
+            >
+              <Text style={[styles.btnTxt, { color: '#818cf8', fontSize: 13 }]}>📍 Re-calibrate</Text>
+            </TouchableOpacity>
+
+            {/* Unload */}
+            <TouchableOpacity
+              style={[styles.btn, styles.btnFlex, {
+                backgroundColor: 'rgba(239,68,68,0.1)',
+                borderColor: '#ef4444',
+                borderWidth: 1,
+              }]}
+              onPress={handleUnload}
+            >
+              <Text style={[styles.btnTxt, { color: '#ef4444', fontSize: 13 }]}>Unload Twin</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* WebView */}
@@ -275,6 +304,8 @@ const styles = StyleSheet.create({
   input:          { flex: 1, padding: 10, borderRadius: 8, borderWidth: 1, fontSize: 13 },
   banner:         { padding: 10, borderRadius: 8, borderWidth: 1 },
   bannerText:     { color: '#ef4444', fontSize: 12 },
+  btnRow:         { flexDirection: 'row', gap: 8 },
+  btnFlex:        { flex: 1 },
   btn:            { padding: 14, borderRadius: 10, alignItems: 'center' },
   btnTxt:         { fontSize: 15, fontWeight: '600' },
   webViewWrapper: { height: 340, borderRadius: 10, overflow: 'hidden', position: 'relative' },

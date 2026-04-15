@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, SafeAreaView, Platform, StatusBar as RNStatusBar } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, SafeAreaView, Platform, StatusBar as RNStatusBar } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Speech from 'expo-speech';
 import * as Haptics from 'expo-haptics';
@@ -52,10 +52,6 @@ function AppContent() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme, colors, isDark } = useTheme();
   
-  // Text-to-Speech state
-  const [text, setText] = useState('');
-  const [ttsStatus, setTtsStatus] = useState('');
-
   // ── Rolling window constants (matches training / desktop app) ────────────
   const WINDOW_SIZE = 50; // 50 samples at 50Hz = 1s of data in the window
 
@@ -70,8 +66,11 @@ function AppContent() {
   
   // Real-time sensor display — throttled to ~10 fps to prevent UI thrashing at 50 Hz
   const [currentSample, setCurrentSample] = useState<number[] | null>(null);
+  // Raw ADC flex values (only set for real WiFi glove; null for simulator which already sends 0-1)
+  const [rawFlexSample, setRawFlexSample] = useState<number[] | null>(null);
   const [currentImu, setCurrentImu] = useState<[number, number, number, number] | null>(null);
   const currentImuRef = React.useRef<[number, number, number, number] | null>(null);
+  const currentMotionRef = React.useRef<{ lx: number; ly: number; lz: number; gx: number; gy: number; gz: number } | null>(null);
   const lastDisplayUpdateRef = React.useRef(0);
   // Raw data log — last 10 lines, throttled to ~5 fps
   const [rawDataLog, setRawDataLog] = useState<string[]>([]);
@@ -87,6 +86,9 @@ function AppContent() {
   // can show movement even before the user runs formal calibration.
   // Convention: higher ADC value = finger straight (same as normalization.ts).
   const twinAutoRangeRef                = useRef<{ min: number[]; max: number[] } | null>(null);
+  // Ref so handleSensorData (useCallback) always sees current twinVisible without stale closure
+  const twinVisibleRef                  = useRef(false);
+  React.useEffect(() => { twinVisibleRef.current = twinVisible; }, [twinVisible]);
   // CalibrationManager registers a handler here to receive every raw sample at full 50 Hz
   const calibSampleHandlerRef = React.useRef<((data: number[]) => void) | null>(null);
   const onRegisterCalibSampleHandler = useCallback(
@@ -133,9 +135,9 @@ function AppContent() {
   const rollingBufferRef = React.useRef<number[][]>([]);
   const isPredictingRef  = React.useRef(false); // prevents concurrent API calls
   // Stable prediction tracking for continuous word building
-  const stablePredRef    = React.useRef<{ letter: string; count: number }>({ letter: '', count: 0 });
-  const letterUsedRef    = React.useRef(false); // prevent re-adding same stable letter
-  const lastSpokenLetterRef = React.useRef<string>(''); // TTS: only speak when letter changes
+  const stablePredRef       = React.useRef<{ letter: string; count: number }>({ letter: '', count: 0 });
+  const letterUsedRef       = React.useRef(false); // prevent re-adding same stable letter
+  const lastHapticLetterRef = React.useRef<string>(''); // only vibrate when predicted letter changes
 
   // QuickDemo control - notify when prediction completes
   const quickDemoCallbackRef = React.useRef<(() => void) | null>(null);
@@ -320,8 +322,10 @@ function AppContent() {
         cb();
       }
 
-      // Haptic feedback (only in non-rolling path to avoid double-haptic)
-      if (!isContinuousMode || isQuickDemoRunning) {
+      // Haptic feedback — only fire when the predicted letter actually changes
+      // (avoids constant vibration at API polling rate)
+      if ((!isContinuousMode || isQuickDemoRunning) && response.letter !== lastHapticLetterRef.current) {
+        lastHapticLetterRef.current = response.letter;
         if (response.confidence >= 0.8) {
           await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } else if (response.confidence >= 0.6) {
@@ -331,11 +335,6 @@ function AppContent() {
         }
       }
 
-      // Speak letter in single-letter mode only — once per letter change
-      if (!isContinuousMode && response.letter !== lastSpokenLetterRef.current) {
-        lastSpokenLetterRef.current = response.letter;
-        Speech.speak(response.letter, { language: 'en-US', rate: 0.8 });
-      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Prediction failed';
       setPredictionError(errorMessage);
@@ -357,11 +356,18 @@ function AppContent() {
   const handleSensorData = useCallback((data: number[]) => {
     lastSampleTimeRef.current = Date.now();
 
-    // ── Split flex (0:5) and IMU quaternion (5:9) ─────────────────────────────
+    // ── Split flex (0:5), IMU quaternion (5:9), LACC (9:12), gyro (12:15) ──────
     const flexData = data.slice(0, 5);
     if (data.length >= 9) {
       const imu: [number, number, number, number] = [data[5], data[6], data[7], data[8]];
       currentImuRef.current = imu;
+    }
+    // 15-column full packet: also capture LACC and gyro for Unity hand translation
+    if (data.length >= 15) {
+      currentMotionRef.current = {
+        lx: data[9], ly: data[10], lz: data[11],
+        gx: data[12], gy: data[13], gz: data[14],
+      };
     }
 
     // ── Raw data log (throttled ~5 fps) ───────────────────────────────────────
@@ -376,16 +382,14 @@ function AppContent() {
       setRawDataLog(prev => [line, ...prev].slice(0, 10));
     }
 
-    // ── Forward to Digital Twin WebView (~10 fps) ─────────────────────────────
-    const nowTwin = Date.now();
-    if (twinVisible && digitalTwinRef.current && nowTwin - twinLastSentRef.current >= 100) {
-      twinLastSentRef.current = nowTwin;
-
-      // EMA-smooth raw flex values
+    // ── Digital Twin: EMA runs at full 50 Hz, WebView injected at ~30 fps ───────
+    // EMA must update on every sample for proper smoothing — decoupled from the
+    // send throttle so we don't skip 4 out of 5 samples the way 10 fps did.
+    if (twinVisibleRef.current && digitalTwinRef.current) {
       if (!twinEmaRef.current) twinEmaRef.current = [...flexData];
       twinEmaRef.current = twinEmaRef.current.map((v, i) => v + TWIN_EMA_ALPHA * (flexData[i] - v));
 
-      // Update per-finger observed min/max for auto-range normalization
+      // Auto-range also updates at 50 Hz so it tracks movement accurately
       if (!twinAutoRangeRef.current) {
         twinAutoRangeRef.current = {
           min: [...twinEmaRef.current],
@@ -400,37 +404,53 @@ function AppContent() {
         );
       }
 
-      // Normalise flex:
-      //   • Calibrated  → use captured baseline/maxbend (accurate)
-      //   • Uncalibrated → auto-range from observed session min/max so the
-      //     twin shows relative movement even before formal calibration.
-      //     Convention: higher ADC = straight (0), lower ADC = bent (1).
-      const calB = calibBaselinesRef.current;
-      const calM = calibMaxbendsRef.current;
-      const autoRange = twinAutoRangeRef.current;
-      const normalizedFlex = twinEmaRef.current.map((v, i) => {
-        if (isCalibrated) {
-          return Math.max(0, Math.min(1, (calB[i] - v) / (calB[i] - calM[i])));
+      // Send to WebView at ~30 fps (33 ms) — smooth for the user, safe for injectJavaScript
+      const nowTwin = Date.now();
+      if (nowTwin - twinLastSentRef.current >= 20) {
+        twinLastSentRef.current = nowTwin;
+
+        // Normalise flex:
+        //   • Calibrated  → use captured baseline/maxbend (accurate)
+        //   • Uncalibrated → auto-range from observed session min/max so the
+        //     twin shows relative movement even before formal calibration.
+        //     Convention: higher ADC = straight (0), lower ADC = bent (1).
+        const calB = calibBaselinesRef.current;
+        const calM = calibMaxbendsRef.current;
+        const autoRange = twinAutoRangeRef.current;
+        const normalizedFlex = twinEmaRef.current.map((v, i) => {
+          if (isCalibrated) {
+            return Math.max(0, Math.min(1, (calB[i] - v) / (calB[i] - calM[i])));
+          }
+          // Auto-range: expand as more movement is seen (min 50-count gap to avoid noise)
+          const span = autoRange.max[i] - autoRange.min[i];
+          if (span < 50) return 0; // not enough range yet — keep neutral
+          return Math.max(0, Math.min(1, (autoRange.max[i] - v) / span));
+        });
+
+        // Compute relative IMU and remap axes to Unity's coordinate frame
+        const imuRaw = currentImuRef.current;
+        let imuXYZ = { x: 0, y: 0, z: 0 };
+        let rawQuatPayload: { w: number; x: number; y: number; z: number } | null = null;
+        if (imuRaw) {
+          const imuQuat: Quat = { w: imuRaw[0], x: imuRaw[1], y: imuRaw[2], z: imuRaw[3] };
+          if (!twinRefQuatRef.current) twinRefQuatRef.current = imuQuat;
+          const qRel = qMult(qInv(twinRefQuatRef.current), imuQuat);
+          // Axis remap: BNO055 frame → Unity axes (correctly-mounted sensor).
+          // Negate qRel.y (→ Unity X) to fix pitch inversion after sensor correction.
+          imuXYZ = { x: -qRel.y, y: qRel.z, z: -qRel.x };
+          rawQuatPayload = { w: imuRaw[0], x: imuRaw[1], y: imuRaw[2], z: imuRaw[3] };
         }
-        // Auto-range: expand as more movement is seen (min 50-count gap to avoid noise)
-        const span = autoRange.max[i] - autoRange.min[i];
-        if (span < 50) return 0; // not enough range yet — keep neutral
-        return Math.max(0, Math.min(1, (autoRange.max[i] - v) / span));
-      });
 
-      // Compute relative IMU and remap axes to Unity's coordinate frame
-      const imuRaw = currentImuRef.current;
-      let imuXYZ = { x: 0, y: 0, z: 0 };
-      if (imuRaw) {
-        const imuQuat: Quat = { w: imuRaw[0], x: imuRaw[1], y: imuRaw[2], z: imuRaw[3] };
-        if (!twinRefQuatRef.current) twinRefQuatRef.current = imuQuat;
-        const qRel = qMult(qInv(twinRefQuatRef.current), imuQuat);
-        // Axis remap: BNO055 frame → Unity axes (correctly-mounted sensor).
-        // Negate qRel.y (→ Unity X) to fix pitch inversion after sensor correction.
-        imuXYZ = { x: -qRel.y, y: qRel.z, z: -qRel.x };
+        const motionRaw = currentMotionRef.current;
+        const motionPayload = motionRaw
+          ? { lx: motionRaw.lx, ly: motionRaw.ly, lz: motionRaw.lz }
+          : null;
+        const gyroPayload = motionRaw
+          ? { gx: motionRaw.gx, gy: motionRaw.gy, gz: motionRaw.gz }
+          : null;
+
+        digitalTwinRef.current.sendSensorData(normalizedFlex, imuXYZ, rawQuatPayload, motionPayload, gyroPayload);
       }
-
-      digitalTwinRef.current.sendSensorData(normalizedFlex, imuXYZ);
     }
 
     // ── Normalize WiFi glove data ─────────────────────────────────────────────
@@ -451,6 +471,8 @@ function AppContent() {
     if (now - lastDisplayUpdateRef.current >= 100) {
       lastDisplayUpdateRef.current = now;
       setCurrentSample(processedData);
+      // Expose raw ADC integers for the sensor bar labels (real glove only)
+      setRawFlexSample(isRawGlove ? [...flexData] : null);
       if (currentImuRef.current) setCurrentImu(currentImuRef.current);
     }
 
@@ -489,20 +511,6 @@ function AppContent() {
     }
   }, [isContinuousMode, WINDOW_SIZE]);
 
-  const handleSpeak = (language: string) => {
-    if (!text.trim()) {
-      setTtsStatus(t('status.error_empty'));
-      return;
-    }
-
-    setTtsStatus(language === 'tr-TR' ? t('status.speaking_tr') : t('status.speaking_en'));
-
-    Speech.speak(text, {
-      language,
-      onDone: () => setTtsStatus(language === 'tr-TR' ? t('status.success_tr') : t('status.success_en')),
-      onError: (e) => setTtsStatus(`Error: ${e}`),
-    });
-  };
 
   const handleStopSimulation = () => {
     setIsSimulating(false);
@@ -512,9 +520,11 @@ function AppContent() {
     rollingBufferRef.current     = [];
     stablePredRef.current        = { letter: '', count: 0 };
     letterUsedRef.current        = false;
-    lastSpokenLetterRef.current  = '';
+    lastHapticLetterRef.current  = '';
     currentImuRef.current        = null;
+    currentMotionRef.current     = null;
     setCurrentImu(null);
+    setRawFlexSample(null);
     setRawDataLog([]);
   };
 
@@ -569,9 +579,11 @@ function AppContent() {
                 isPredictingRef.current     = false;
                 stablePredRef.current       = { letter: '', count: 0 };
                 letterUsedRef.current       = false;
-                lastSpokenLetterRef.current = '';
+                lastHapticLetterRef.current = '';
                 currentImuRef.current       = null;
+                currentMotionRef.current    = null;
                 setCurrentImu(null);
+                setRawFlexSample(null);
                 setRawDataLog([]);
                 twinRefQuatRef.current      = null;
                 twinEmaRef.current          = null;
@@ -608,6 +620,13 @@ function AppContent() {
               <DigitalTwin
                 ref={digitalTwinRef}
                 onClose={() => setTwinVisible(false)}
+                onRecalibrate={() => {
+                  // Reset the reference quaternion so the next incoming sample
+                  // becomes the new neutral orientation (same logic as desktop app).
+                  twinRefQuatRef.current   = null;
+                  twinEmaRef.current       = null;
+                  twinAutoRangeRef.current = null;
+                }}
               />
             )}
 
@@ -711,6 +730,7 @@ function AppContent() {
 
             <SensorDisplay
               currentSample={currentSample}
+              rawFlexSample={rawFlexSample}
               currentImu={currentImu}
               rawDataLog={rawDataLog}
               isActive={isSimulating || connectedDevice !== null}
@@ -745,48 +765,6 @@ function AppContent() {
             />
 
             <PredictionHistory history={predictionHistory} />
-          </View>
-
-          {/* Text-to-Speech Section */}
-          <View style={[styles.section, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              Text-to-Speech
-            </Text>
-
-            <View style={styles.inputSection}>
-              <Text style={[styles.label, { color: colors.textPrimary }]}>{t('input.label')}</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.borderColor, color: colors.textPrimary }]}
-                multiline
-                numberOfLines={4}
-                value={text}
-                onChangeText={setText}
-                placeholder={t('input.placeholder')}
-                placeholderTextColor={colors.textSecondary}
-              />
-            </View>
-
-            <View style={styles.buttonGroup}>
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: colors.accentPrimary }]}
-                onPress={() => handleSpeak('tr-TR')}
-              >
-                <Text style={[styles.buttonText, { color: colors.accentText }]}>{t('buttons.speak_tr')}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, styles.secondaryButton, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}
-                onPress={() => handleSpeak('en-US')}
-              >
-                <Text style={[styles.buttonText, { color: colors.textPrimary }]}>{t('buttons.speak_en')}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {!!ttsStatus && (
-              <View style={[styles.statusMessage, { backgroundColor: colors.statusBg, borderColor: colors.borderColor }]}>
-                <Text style={{ color: colors.textPrimary, textAlign: 'center' }}>{ttsStatus}</Text>
-              </View>
-            )}
           </View>
 
           {/* Footer */}
@@ -854,53 +832,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 16,
-  },
-  inputSection: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  input: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    fontSize: 16,
-    minHeight: 120,
-    textAlignVertical: 'top',
-  },
-  buttonGroup: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  button: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  secondaryButton: {
-    borderWidth: 1,
-    elevation: 0,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  statusMessage: {
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
   },
   footer: {
     alignItems: 'center',
