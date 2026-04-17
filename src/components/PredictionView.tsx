@@ -24,6 +24,7 @@ const ASL_SIGNS: { [key: string]: any } = {
   R: require('../../assets/asl/R.png'),
   S: require('../../assets/asl/S.png'),
   T: require('../../assets/asl/T.png'),
+  U: require('../../assets/asl/U.png'),
   V: require('../../assets/asl/V.png'),
   W: require('../../assets/asl/W.png'),
   X: require('../../assets/asl/X.png'),

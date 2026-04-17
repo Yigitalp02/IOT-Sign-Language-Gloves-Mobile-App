@@ -81,7 +81,11 @@ function AppContent() {
   const digitalTwinRef                  = useRef<DigitalTwinRef>(null);
   const twinRefQuatRef                  = useRef<Quat | null>(null);
   const twinEmaRef                      = useRef<number[] | null>(null);
-  const twinLastSentRef                 = useRef(0); // throttle to ~10 fps
+  const twinLastSentRef                 = useRef(0);
+  // Lock spatial movement: omit motion/gyro payload so twin only shows
+  // finger flex + wrist orientation without translating in 3D space.
+  const [lockSpatial, setLockSpatial]   = useState(false);
+  const lockSpatialRef                  = useRef(false);
   // Auto-range: tracks per-finger min/max seen in the session so the twin
   // can show movement even before the user runs formal calibration.
   // Convention: higher ADC value = finger straight (same as normalization.ts).
@@ -441,7 +445,7 @@ function AppContent() {
           rawQuatPayload = { w: imuRaw[0], x: imuRaw[1], y: imuRaw[2], z: imuRaw[3] };
         }
 
-        const motionRaw = currentMotionRef.current;
+        const motionRaw = lockSpatialRef.current ? null : currentMotionRef.current;
         const motionPayload = motionRaw
           ? { lx: motionRaw.lx, ly: motionRaw.ly, lz: motionRaw.lz }
           : null;
@@ -592,28 +596,50 @@ function AppContent() {
               onDataReceived={handleSensorData}
             />
 
-            {/* Digital Twin toggle button */}
-            <TouchableOpacity
-              style={[
-                styles.twinToggleBtn,
-                {
-                  backgroundColor: twinVisible ? 'rgba(99,102,241,0.12)' : colors.bgSecondary,
-                  borderColor:     twinVisible ? 'rgba(99,102,241,0.5)'  : colors.borderColor,
-                },
-              ]}
-              onPress={() => {
-                if (!twinVisible) {
-                  twinRefQuatRef.current   = null;
-                  twinEmaRef.current       = null;
-                  twinAutoRangeRef.current = null;
-                }
-                setTwinVisible(v => !v);
-              }}
-            >
-              <Text style={[styles.twinToggleTxt, { color: twinVisible ? '#818cf8' : colors.textSecondary }]}>
-                {twinVisible ? '🖼️ Hide 3D Twin' : '🖼️ 3D Digital Twin'}
-              </Text>
-            </TouchableOpacity>
+            {/* Digital Twin toggle + Lock Position row */}
+            <View style={styles.twinControlRow}>
+              <TouchableOpacity
+                style={[
+                  styles.twinToggleBtn,
+                  styles.twinToggleFlex,
+                  {
+                    backgroundColor: twinVisible ? 'rgba(99,102,241,0.12)' : colors.bgSecondary,
+                    borderColor:     twinVisible ? 'rgba(99,102,241,0.5)'  : colors.borderColor,
+                  },
+                ]}
+                onPress={() => {
+                  if (!twinVisible) {
+                    twinRefQuatRef.current   = null;
+                    twinEmaRef.current       = null;
+                    twinAutoRangeRef.current = null;
+                  }
+                  setTwinVisible(v => !v);
+                }}
+              >
+                <Text style={[styles.twinToggleTxt, { color: twinVisible ? '#818cf8' : colors.textSecondary }]}>
+                  {twinVisible ? '🖼️ Hide 3D Twin' : '🖼️ 3D Digital Twin'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.twinToggleBtn,
+                  {
+                    backgroundColor: lockSpatial ? 'rgba(251,191,36,0.12)' : colors.bgSecondary,
+                    borderColor:     lockSpatial ? 'rgba(251,191,36,0.5)'  : colors.borderColor,
+                  },
+                ]}
+                onPress={() => {
+                  const next = !lockSpatialRef.current;
+                  lockSpatialRef.current = next;
+                  setLockSpatial(next);
+                }}
+              >
+                <Text style={[styles.twinToggleTxt, { color: lockSpatial ? '#d97706' : colors.textSecondary, fontSize: 13 }]}>
+                  {lockSpatial ? '📍 Locked' : '🔓 Position'}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Digital Twin WebGL WebView */}
             {twinVisible && (
@@ -621,8 +647,6 @@ function AppContent() {
                 ref={digitalTwinRef}
                 onClose={() => setTwinVisible(false)}
                 onRecalibrate={() => {
-                  // Reset the reference quaternion so the next incoming sample
-                  // becomes the new neutral orientation (same logic as desktop app).
                   twinRefQuatRef.current   = null;
                   twinEmaRef.current       = null;
                   twinAutoRangeRef.current = null;
@@ -876,12 +900,19 @@ const styles = StyleSheet.create({
   modeDescription: {
     fontSize: 10,
   },
+  twinControlRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 4,
+  },
+  twinToggleFlex: {
+    flex: 1,
+  },
   twinToggleBtn: {
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
-    marginBottom: 4,
   },
   twinToggleTxt: {
     fontSize: 14,
