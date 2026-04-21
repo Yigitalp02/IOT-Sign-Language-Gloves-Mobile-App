@@ -25,6 +25,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.yigitalp02.iotsignlanguage",
+      "versionCode": 1,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
