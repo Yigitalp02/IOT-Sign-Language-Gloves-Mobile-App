@@ -3,7 +3,8 @@
         "title": "IoT Sign Language",
         "subtitle": "ASL Recognition System",
         "footer": "Real-time American Sign Language recognition using ML and sensor glove technology.",
-        "version": "Version 0.4.0 | Computer Science Graduation Project | Yiğit Alp Bilgin"
+        "version": "Version 1.0.0 | Computer Science Graduation Project | Yiğit Alp Bilgin",
+        "asl_recognition": "ASL Recognition"
     },
     "input": {
         "label": "Enter text to speak:",
@@ -32,12 +33,30 @@
         "disconnected_title": "Device Disconnected",
         "disconnected_message": "Successfully disconnected from glove",
         "error_title": "Connection Error",
-        "error_message": "Failed to connect to device. Please try again."
+        "error_message": "Failed to connect to device. Please try again.",
+        "wifi_title": "WiFi Connection",
+        "paused": "Paused",
+        "connecting": "Connecting...",
+        "host_label": "Host",
+        "port_label": "Port",
+        "resume": "▶ Resume",
+        "pause": "⏸ Pause",
+        "disconnect_btn": "Disconnect",
+        "connect_btn": "Connect",
+        "paused_banner": "⏸ Paused — glove connected but data forwarding is stopped",
+        "wifi_hint_line1": "Glove and phone must be on the same WiFi network.",
+        "wifi_hint_line2": "If glove.local doesn't resolve, enter the glove's IP address.",
+        "live_log_title": "Live Serial Log",
+        "live_log_empty": "No data yet — waiting for ESP32 stream…",
+        "log_lines": "{{count}} lines",
+        "log_waiting": "waiting…"
     },
     "simulator": {
         "title": "ASL Simulator",
         "description": "Select a letter to simulate sensor data",
-        "simulating": "Simulating"
+        "simulating": "Simulating",
+        "continuous_mode": "continuous mode",
+        "sample_count": "{{count}}/200"
     },
     "prediction": {
         "analyzing": "Analyzing",
@@ -45,7 +64,15 @@
         "confidence": "Confidence",
         "samples": "Samples",
         "time": "Time",
-        "model": "Model"
+        "model": "Model",
+        "live": "LIVE",
+        "letters_detected_one": "{{count}} letter detected",
+        "letters_detected_other": "{{count}} letters detected",
+        "speak": "Speak",
+        "delete": "Delete",
+        "clear": "Clear",
+        "last_letter": "Last letter:",
+        "confidence_label": "Confidence:"
     },
     "history": {
         "title": "Recent Predictions",
@@ -65,5 +92,107 @@
         "success_tr": "Successfully spoke in Turkish",
         "success_en": "Successfully spoke in English",
         "error_empty": "Error: Please enter some text to speak."
+    },
+    "recognition": {
+        "label": "Recognition Mode:",
+        "single": "Single Letter",
+        "single_desc": "Rolling 50-sample window",
+        "continuous": "Continuous Words",
+        "continuous_desc": "Stable detection (~800ms)"
+    },
+    "sensor": {
+        "title": "Real-Time Sensor Values",
+        "no_data": "No sensor data yet…",
+        "imu_title": "IMU Quaternion",
+        "raw_log_title": "Raw Data Log",
+        "log_lines": "{{count}} lines",
+        "legend_straight": "Straight (full)",
+        "legend_partial": "Partial",
+        "legend_bent": "Bent (empty)"
+    },
+    "debug": {
+        "title": "Debug Log",
+        "simulation": "SIMULATION",
+        "duration": "Duration:",
+        "samples": "Samples:",
+        "first": "First:",
+        "last": "Last:",
+        "api_call": "API CALL",
+        "endpoint": "Endpoint:",
+        "round_trip": "Round-trip:",
+        "server_processing": "Server processing:",
+        "model": "Model:",
+        "prediction_section": "PREDICTION",
+        "letter": "Letter:",
+        "confidence": "Confidence:",
+        "top5": "TOP 5 CANDIDATES",
+        "error": "ERROR"
+    },
+    "calibrator": {
+        "title": "Sensor Calibrator",
+        "per_finger_desc": "Calibrate each finger individually",
+        "full_hand_desc": "Calibrate all fingers at once",
+        "per_finger_btn": "☝️ Per-Finger",
+        "full_hand_btn": "✋ Full Hand",
+        "calibrated": "Calibrated",
+        "not_calibrated": "Not calibrated",
+        "calibrating_all": "Calibrating: All Fingers",
+        "calibrating_finger": "Calibrating: {{finger}}",
+        "redo": "Redo",
+        "reset_all": "Reset All",
+        "step1_all_title": "Step 1 — Straighten All Fingers",
+        "step1_finger_title": "Step 1 — Straighten {{finger}}",
+        "step1_all_hint": "Hold hand flat, all fingers fully extended",
+        "step1_finger_hint": "Keep {{finger}} fully straight",
+        "step2_all_title": "Step 2 — Bend All Fingers",
+        "step2_finger_title": "Step 2 — Bend {{finger}}",
+        "step2_all_hint": "Make a fist, all fingers fully curled",
+        "step2_finger_hint": "Curl {{finger}} fully bent",
+        "record": "Record",
+        "finger_calibrated": "{{finger}} calibrated ✓",
+        "straight_value": "Straight:",
+        "bent_value": "Bent:",
+        "all_calibrated": "All fingers calibrated ✓",
+        "all_fingers_title": "All Fingers Calibrated",
+        "partial_title": "{{count}}/5 Fingers Calibrated",
+        "partial_hint": "You can apply now — uncalibrated fingers use defaults.",
+        "apply_all": "Apply All",
+        "apply_partial": "Apply {{count}} Finger(s)",
+        "default_suffix": "(default)",
+        "col_finger": "Finger",
+        "col_straight": "Straight",
+        "col_bent": "Bent"
+    },
+    "twin": {
+        "title": "3D Digital Twin",
+        "subtitle": "Unity WebGL · Live Hand Pose",
+        "local_mode": "📱 Local (Bundled)",
+        "remote_mode": "🌐 Remote (Desktop)",
+        "local_hint": "Uses the WebGL build bundled inside the app.\nWorks offline — no desktop required.",
+        "remote_hint": "Connect to the desktop app's WebGL server over WiFi.",
+        "load": "Load 3D Twin",
+        "recalibrate": "📍 Re-calibrate",
+        "unload": "Unload Twin",
+        "loading": "Loading Unity WebGL…\nThis may take 15–30 seconds.",
+        "hide": "🖼️ Hide 3D Twin",
+        "show": "🖼️ 3D Digital Twin",
+        "lock_position": "🔓 Position",
+        "position_locked": "📍 Locked"
+    },
+    "quick_demo": {
+        "title": "Quick Demo Mode",
+        "description": "Auto-simulate words for professor demos",
+        "running": "Demo Running... (Letter {{index}})",
+        "enter_word": "Enter Word:",
+        "placeholder": "Type word here...",
+        "available_letters": "Available letters: A B C D E F I K O S T U V W X Y",
+        "go": "GO"
+    },
+    "fingers": {
+        "thumb": "Thumb",
+        "index": "Index",
+        "middle": "Middle",
+        "ring": "Ring",
+        "pinky": "Pinky"
     }
 }

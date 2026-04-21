@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, TextInput } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
 import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
@@ -16,6 +17,7 @@ interface QuickDemoProps {
 }
 
 const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onStopSimulator, quickDemoCallbackRef, detectedWord, onClearWord, onResetWordFinalization, getCurrentWord }) => {
+  const { t } = useTranslation();
   const { colors } = useTheme();
   const [customWord, setCustomWord] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -110,17 +112,17 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
   return (
     <View style={[styles.container, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
       <Text style={[styles.title, { color: colors.textPrimary }]}>
-        Quick Demo Mode
+        {t('quick_demo.title')}
       </Text>
       
       <Text style={[styles.description, { color: colors.textSecondary }]}>
-        Auto-simulate words for professor demos
+        {t('quick_demo.description')}
       </Text>
 
       {isRunning && (
         <View style={[styles.runningBanner, { backgroundColor: '#10b981' + '20', borderColor: '#10b981' }]}>
           <Text style={[styles.runningText, { color: '#10b981' }]}>
-            Demo Running... (Letter {currentLetterIndex + 1})
+            {t('quick_demo.running', { index: currentLetterIndex + 1 })}
           </Text>
         </View>
       )}
@@ -128,7 +130,7 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
       {/* Custom Word */}
       <View style={styles.section}>
         <Text style={[styles.sectionLabel, { color: colors.textPrimary }]}>
-          Enter Word:
+          {t('quick_demo.enter_word')}
         </Text>
         <View style={styles.customRow}>
           <TextInput
@@ -142,7 +144,7 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
             ]}
             value={customWord}
             onChangeText={(text) => setCustomWord(text.toUpperCase())}
-            placeholder="Type word here..."
+            placeholder={t('quick_demo.placeholder')}
             placeholderTextColor={colors.textSecondary}
             maxLength={10}
             autoCapitalize="characters"
@@ -163,11 +165,11 @@ const QuickDemo: React.FC<QuickDemoProps> = ({ onSimulateLetter, isActive, onSto
             }}
             disabled={!customWord.trim() || isActive || isRunning}
           >
-            <Text style={styles.goButtonText}>GO</Text>
+            <Text style={styles.goButtonText}>{t('quick_demo.go')}</Text>
           </TouchableOpacity>
         </View>
         <Text style={[styles.helperText, { color: colors.textSecondary }]}>
-          Available letters: A B C D E F I K O S T U V W X Y
+          {t('quick_demo.available_letters')}
         </Text>
       </View>
     </View>

@@ -552,6 +552,7 @@ function AppContent() {
                 options={[
                   { label: 'English', value: 'en' },
                   { label: 'Türkçe', value: 'tr' },
+                  { label: 'Deutsch', value: 'de' },
                 ]}
                 onSelect={(value) => i18n.changeLanguage(value)}
               />
@@ -572,7 +573,7 @@ function AppContent() {
           {/* ASL Recognition Section */}
           <View style={[styles.section, { backgroundColor: colors.bgCard, borderColor: colors.borderColor }]}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              ASL Recognition
+              {t('app.asl_recognition')}
             </Text>
 
             <ConnectionManager
@@ -617,7 +618,7 @@ function AppContent() {
                 }}
               >
                 <Text style={[styles.twinToggleTxt, { color: twinVisible ? '#818cf8' : colors.textSecondary }]}>
-                  {twinVisible ? '🖼️ Hide 3D Twin' : '🖼️ 3D Digital Twin'}
+                  {twinVisible ? t('twin.hide') : t('twin.show')}
                 </Text>
               </TouchableOpacity>
 
@@ -636,7 +637,7 @@ function AppContent() {
                 }}
               >
                 <Text style={[styles.twinToggleTxt, { color: lockSpatial ? '#d97706' : colors.textSecondary, fontSize: 13 }]}>
-                  {lockSpatial ? '📍 Locked' : '🔓 Position'}
+                  {lockSpatial ? t('twin.position_locked') : t('twin.lock_position')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -676,7 +677,7 @@ function AppContent() {
             {/* Mode Selector */}
             <View style={[styles.modeSelector, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
               <Text style={[styles.modeLabel, { color: colors.textPrimary }]}>
-                Recognition Mode:
+                {t('recognition.label')}
               </Text>
               <View style={styles.modeButtons}>
                 <TouchableOpacity
@@ -693,10 +694,10 @@ function AppContent() {
                   }}
                 >
                   <Text style={[styles.modeButtonText, { color: !isContinuousMode ? colors.accentText : colors.textSecondary }]}>
-                    Single Letter
+                    {t('recognition.single')}
                   </Text>
                   <Text style={[styles.modeDescription, { color: !isContinuousMode ? colors.accentText : colors.textSecondary }]}>
-                    Rolling 50-sample window
+                    {t('recognition.single_desc')}
                   </Text>
                 </TouchableOpacity>
 
@@ -713,10 +714,10 @@ function AppContent() {
                   }}
                 >
                   <Text style={[styles.modeButtonText, { color: isContinuousMode ? colors.accentText : colors.textSecondary }]}>
-                    Continuous Words
+                    {t('recognition.continuous')}
                   </Text>
                   <Text style={[styles.modeDescription, { color: isContinuousMode ? colors.accentText : colors.textSecondary }]}>
-                    Stable detection (~800ms)
+                    {t('recognition.continuous_desc')}
                   </Text>
                 </TouchableOpacity>
               </View>

@@ -105,7 +105,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
         {isLoading && (
           <View style={styles.liveIndicator}>
             <View style={[styles.liveDot, { backgroundColor: colors.accentPrimary }]} />
-            <Text style={[styles.liveText, { color: colors.accentPrimary }]}>LIVE</Text>
+            <Text style={[styles.liveText, { color: colors.accentPrimary }]}>{t('prediction.live')}</Text>
           </View>
         )}
         <View style={styles.mainResult}>
@@ -134,7 +134,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
         </View>
         
         <Text style={[styles.continuousModeHint, { color: colors.textSecondary }]}>
-          {currentWord.length} letter{currentWord.length !== 1 ? 's' : ''} detected
+          {t(currentWord.length === 1 ? 'prediction.letters_detected_one' : 'prediction.letters_detected_other', { count: currentWord.length })}
         </Text>
 
         {/* Action Buttons */}
@@ -147,7 +147,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
               }
             }}
           >
-            <Text style={styles.actionButtonText}>Speak</Text>
+            <Text style={styles.actionButtonText}>{t('prediction.speak')}</Text>
           </TouchableOpacity>
 
           {onDeleteLetter && (
@@ -155,7 +155,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
               style={[styles.actionButton, { backgroundColor: '#fb923c' }]}
               onPress={onDeleteLetter}
             >
-              <Text style={styles.actionButtonText}>Delete</Text>
+              <Text style={styles.actionButtonText}>{t('prediction.delete')}</Text>
             </TouchableOpacity>
           )}
 
@@ -164,7 +164,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
               style={[styles.actionButton, { backgroundColor: '#ef4444' }]}
               onPress={onClearWord}
             >
-              <Text style={styles.actionButtonText}>Clear</Text>
+              <Text style={styles.actionButtonText}>{t('prediction.clear')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -173,7 +173,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
           <View style={styles.metadata}>
             <View style={styles.metadataItem}>
               <Text style={[styles.metadataLabel, { color: colors.textSecondary }]}>
-                Last letter:
+                {t('prediction.last_letter')}
               </Text>
               <Text style={[styles.metadataValue, { color: colors.textPrimary }]}>
                 {prediction.letter}
@@ -181,7 +181,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
             </View>
             <View style={styles.metadataItem}>
               <Text style={[styles.metadataLabel, { color: colors.textSecondary }]}>
-                Confidence:
+                {t('prediction.confidence_label')}
               </Text>
               <Text style={[styles.metadataValue, { color: getConfidenceColor(prediction.confidence) }]}>
                 {Math.round(prediction.confidence * 100)}%
@@ -212,7 +212,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
       {isLoading && (
         <View style={styles.liveIndicator}>
           <View style={[styles.liveDot, { backgroundColor: colors.accentPrimary }]} />
-          <Text style={[styles.liveText, { color: colors.accentPrimary }]}>LIVE</Text>
+          <Text style={[styles.liveText, { color: colors.accentPrimary }]}>{t('prediction.live')}</Text>
         </View>
       )}
       <View style={styles.mainResult}>
@@ -233,7 +233,7 @@ export default function PredictionView({ prediction, isLoading, error, sampleCou
             resizeMode="contain"
           />
           <Text style={[styles.signHintText, { color: colors.textSecondary }]}>
-            {'Confidence: '}
+            {t('prediction.confidence_label')}{' '}
             <Text style={{ color: confidenceColor, fontWeight: '600' }}>{confidencePercent}%</Text>
           </Text>
         </View>

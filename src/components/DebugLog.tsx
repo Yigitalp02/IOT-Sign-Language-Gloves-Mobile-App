@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
 
 interface DebugLogData {
@@ -27,6 +28,7 @@ interface DebugLogProps {
 }
 
 export default function DebugLog({ data, isVisible, onToggle }: DebugLogProps) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   if (!data) return null;
@@ -62,7 +64,7 @@ export default function DebugLog({ data, isVisible, onToggle }: DebugLogProps) {
         activeOpacity={0.7}
       >
         <Text style={[styles.headerText, { color: colors.textPrimary }]}>
-          {isVisible ? '▼' : '▶'} Debug Log
+          {isVisible ? '▼' : '▶'} {t('debug.title')}
         </Text>
         {data.apiResponse && (
           <Text style={[styles.headerBadge, { 
@@ -83,21 +85,21 @@ export default function DebugLog({ data, isVisible, onToggle }: DebugLogProps) {
           {/* Simulation Info */}
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.accentPrimary }]}>
-              SIMULATION
+              {t('debug.simulation')}
             </Text>
             <Text style={[styles.logText, { color: colors.textSecondary }]}>
-              Duration: {simulationDuration.toFixed(0)}ms ({(simulationDuration / 1000).toFixed(1)}s)
+              {t('debug.duration')} {simulationDuration.toFixed(0)}ms ({(simulationDuration / 1000).toFixed(1)}s)
             </Text>
             <Text style={[styles.logText, { color: colors.textSecondary }]}>
-              Samples: {data.totalSamples || 0}
+              {t('debug.samples')} {data.totalSamples || 0}
             </Text>
             {data.firstSample && (
               <>
                 <Text style={[styles.logText, { color: colors.textSecondary }]}>
-                  First: [{data.firstSample.map(v => v.toFixed(0)).join(', ')}]
+                  {t('debug.first')} [{data.firstSample.map(v => v.toFixed(0)).join(', ')}]
                 </Text>
                 <Text style={[styles.logText, { color: colors.textSecondary }]}>
-                  Last:  [{data.lastSample?.map(v => v.toFixed(0)).join(', ')}]
+                  {t('debug.last')}  [{data.lastSample?.map(v => v.toFixed(0)).join(', ')}]
                 </Text>
               </>
             )}
@@ -107,19 +109,19 @@ export default function DebugLog({ data, isVisible, onToggle }: DebugLogProps) {
           {data.apiResponse && (
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: colors.accentSecondary }]}>
-                API CALL
+                {t('debug.api_call')}
               </Text>
               <Text style={[styles.logText, { color: colors.textSecondary }]}>
-                Endpoint: https://api.ybilgin.com/predict
+                {t('debug.endpoint')} https://api.ybilgin.com/predict
               </Text>
               <Text style={[styles.logText, { color: colors.textSecondary }]}>
-                Round-trip: {roundTripTime.toFixed(1)}ms
+                {t('debug.round_trip')} {roundTripTime.toFixed(1)}ms
               </Text>
               <Text style={[styles.logText, { color: colors.textSecondary }]}>
-                Server processing: {data.apiResponse.processing_time_ms.toFixed(1)}ms
+                {t('debug.server_processing')} {data.apiResponse.processing_time_ms.toFixed(1)}ms
               </Text>
               <Text style={[styles.logText, { color: colors.textSecondary }]}>
-                Model: {data.apiResponse.model_name}
+                {t('debug.model')} {data.apiResponse.model_name}
               </Text>
             </View>
           )}
@@ -128,13 +130,13 @@ export default function DebugLog({ data, isVisible, onToggle }: DebugLogProps) {
           {data.apiResponse && (
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: '#34d399' }]}>
-                PREDICTION
+                {t('debug.prediction_section')}
               </Text>
               <Text style={[styles.logText, { color: colors.textPrimary, fontWeight: '700' }]}>
-                Letter: {data.apiResponse.letter}
+                {t('debug.letter')} {data.apiResponse.letter}
               </Text>
               <Text style={[styles.logText, { color: colors.textPrimary, fontWeight: '700' }]}>
-                Confidence: {(data.apiResponse.confidence * 100).toFixed(1)}%
+                {t('debug.confidence')} {(data.apiResponse.confidence * 100).toFixed(1)}%
               </Text>
             </View>
           )}
@@ -143,7 +145,7 @@ export default function DebugLog({ data, isVisible, onToggle }: DebugLogProps) {
           {sortedProbs.length > 0 && (
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: '#fbbf24' }]}>
-                TOP 5 CANDIDATES
+                {t('debug.top5')}
               </Text>
               {sortedProbs.map(([letter, prob]) => (
                 <View key={letter} style={styles.probRow}>
@@ -173,7 +175,7 @@ export default function DebugLog({ data, isVisible, onToggle }: DebugLogProps) {
           {data.error && (
             <View style={[styles.section, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
               <Text style={[styles.sectionTitle, { color: '#ef4444' }]}>
-                ERROR
+                {t('debug.error')}
               </Text>
               <Text style={[styles.errorText, { color: '#ef4444' }]}>
                 {data.error}

@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
 import { DEFAULT_BASELINES, DEFAULT_MAXBENDS } from '../utils/normalization';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const CAPTURE_SAMPLES = 100; // 2 seconds at 50 Hz
-const FINGER_NAMES    = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type CaptureStep = 'idle' | 'straight' | 'bent';
@@ -65,7 +65,9 @@ export default function CalibrationManager({
   onCalibrate,
   onReset,
 }: CalibrationManagerProps) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
+  const FINGER_NAMES = [t('fingers.thumb'), t('fingers.index'), t('fingers.middle'), t('fingers.ring'), t('fingers.pinky')];
 
   const [mode,          setMode]          = useState<Mode>('per-finger');
   const [step,          setStep]          = useState<CaptureStep>('idle');
@@ -240,9 +242,9 @@ export default function CalibrationManager({
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <View style={styles.headerRow}>
         <View>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>Sensor Calibrator</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>{t('calibrator.title')}</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            {mode === 'per-finger' ? 'Calibrate each finger individually' : 'Calibrate all fingers at once'}
+            {mode === 'per-finger' ? t('calibrator.per_finger_desc') : t('calibrator.full_hand_desc')}
           </Text>
         </View>
         <View style={[styles.badge, {
@@ -250,7 +252,7 @@ export default function CalibrationManager({
         }]}>
           <View style={[styles.badgeDot, { backgroundColor: isCalibrated ? '#34d399' : '#fbbf24' }]} />
           <Text style={[styles.badgeText, { color: isCalibrated ? '#34d399' : '#fbbf24' }]}>
-            {isCalibrated ? 'Calibrated' : 'Not calibrated'}
+            {isCalibrated ? t('calibrator.calibrated') : t('calibrator.not_calibrated')}
           </Text>
         </View>
       </View>
@@ -268,7 +270,7 @@ export default function CalibrationManager({
               color: mode === m ? colors.accentText : colors.textSecondary,
               opacity: isCapturing && mode !== m ? 0.4 : 1,
             }]}>
-              {m === 'per-finger' ? '☝️ Per-Finger' : '✋ Full Hand'}
+              {m === 'per-finger' ? t('calibrator.per_finger_btn') : t('calibrator.full_hand_btn')}
             </Text>
           </TouchableOpacity>
         ))}
@@ -313,8 +315,8 @@ export default function CalibrationManager({
         <View style={styles.stepsHeader}>
           <Text style={[styles.stepsTitle, { color: colors.textPrimary }]}>
             {mode === 'full-hand'
-              ? 'Calibrating: All Fingers'
-              : `Calibrating: ${FINGER_NAMES[activeFinger]}`}
+              ? t('calibrator.calibrating_all')
+              : t('calibrator.calibrating_finger', { finger: FINGER_NAMES[activeFinger] })}
           </Text>
           {mode === 'per-finger' && currentFD.baseline !== null && (
             <TouchableOpacity
@@ -322,7 +324,7 @@ export default function CalibrationManager({
               onPress={() => resetFinger(activeFinger)}
               disabled={isCapturing}
             >
-              <Text style={[styles.redoBtnTxt, { color: '#ef4444' }]}>Redo</Text>
+              <Text style={[styles.redoBtnTxt, { color: '#ef4444' }]}>{t('calibrator.redo')}</Text>
             </TouchableOpacity>
           )}
           {mode === 'full-hand' && allCalibrated && (
@@ -331,7 +333,7 @@ export default function CalibrationManager({
               onPress={handleReset}
               disabled={isCapturing}
             >
-              <Text style={[styles.redoBtnTxt, { color: '#ef4444' }]}>Reset All</Text>
+              <Text style={[styles.redoBtnTxt, { color: '#ef4444' }]}>{t('calibrator.reset_all')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -345,12 +347,12 @@ export default function CalibrationManager({
           <View style={styles.stepCardRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.stepCardTitle, { color: colors.textPrimary }]}>
-                Step 1 — Straighten {mode === 'full-hand' ? 'All Fingers' : FINGER_NAMES[activeFinger]}
+                {mode === 'full-hand' ? t('calibrator.step1_all_title') : t('calibrator.step1_finger_title', { finger: FINGER_NAMES[activeFinger] })}
               </Text>
               <Text style={[styles.stepCardHint, { color: colors.textSecondary }]}>
                 {mode === 'full-hand'
-                  ? 'Hold hand flat, all fingers fully extended'
-                  : `Keep ${FINGER_NAMES[activeFinger]} fully straight`}
+                  ? t('calibrator.step1_all_hint')
+                  : t('calibrator.step1_finger_hint', { finger: FINGER_NAMES[activeFinger] })}
               </Text>
             </View>
             <TouchableOpacity
@@ -362,7 +364,7 @@ export default function CalibrationManager({
               disabled={!isConnected || isCapturing || hasStraight}
             >
               <Text style={styles.captureBtnTxt}>
-                {hasStraight ? '✓' : 'Record'}
+                {hasStraight ? '✓' : t('calibrator.record')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -386,12 +388,12 @@ export default function CalibrationManager({
           <View style={styles.stepCardRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.stepCardTitle, { color: colors.textPrimary }]}>
-                Step 2 — Bend {mode === 'full-hand' ? 'All Fingers' : FINGER_NAMES[activeFinger]}
+                {mode === 'full-hand' ? t('calibrator.step2_all_title') : t('calibrator.step2_finger_title', { finger: FINGER_NAMES[activeFinger] })}
               </Text>
               <Text style={[styles.stepCardHint, { color: colors.textSecondary }]}>
                 {mode === 'full-hand'
-                  ? 'Make a fist, all fingers fully curled'
-                  : `Curl ${FINGER_NAMES[activeFinger]} fully bent`}
+                  ? t('calibrator.step2_all_hint')
+                  : t('calibrator.step2_finger_hint', { finger: FINGER_NAMES[activeFinger] })}
               </Text>
             </View>
             <TouchableOpacity
@@ -403,7 +405,7 @@ export default function CalibrationManager({
               disabled={!isConnected || !hasStraight || isCapturing || hasBent}
             >
               <Text style={styles.captureBtnTxt}>
-                {hasBent ? '✓' : 'Record'}
+                {hasBent ? '✓' : t('calibrator.record')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -421,10 +423,10 @@ export default function CalibrationManager({
         {mode === 'per-finger' && currentFD.baseline !== null && (
           <View style={[styles.resultBox, { backgroundColor: 'rgba(52,211,153,0.1)', borderColor: 'rgba(52,211,153,0.3)' }]}>
             <Text style={[styles.resultTitle, { color: '#34d399' }]}>
-              {FINGER_NAMES[activeFinger]} calibrated ✓
+              {t('calibrator.finger_calibrated', { finger: FINGER_NAMES[activeFinger] })}
             </Text>
             <Text style={[styles.resultValue, { color: colors.textSecondary }]}>
-              Straight: {currentFD.baseline}  ·  Bent: {currentFD.maxbend}
+              {t('calibrator.straight_value')} {currentFD.baseline}  ·  {t('calibrator.bent_value')} {currentFD.maxbend}
             </Text>
           </View>
         )}
@@ -432,7 +434,7 @@ export default function CalibrationManager({
         {/* Result preview for full-hand */}
         {mode === 'full-hand' && allCalibrated && (
           <View style={[styles.resultBox, { backgroundColor: 'rgba(52,211,153,0.1)', borderColor: 'rgba(52,211,153,0.3)' }]}>
-            <Text style={[styles.resultTitle, { color: '#34d399' }]}>All fingers calibrated ✓</Text>
+            <Text style={[styles.resultTitle, { color: '#34d399' }]}>{t('calibrator.all_calibrated')}</Text>
             {fingerData.map((fc, i) => (
               <Text key={i} style={[styles.resultValue, { color: colors.textSecondary }]}>
                 {FINGER_NAMES[i]}: {fc.baseline} → {fc.maxbend}
@@ -452,13 +454,13 @@ export default function CalibrationManager({
             color: allCalibrated ? '#34d399' : colors.accentPrimary,
           }]}>
             {allCalibrated
-              ? 'All Fingers Calibrated'
-              : `${calibCount}/5 Fingers Calibrated`}
+              ? t('calibrator.all_fingers_title')
+              : t('calibrator.partial_title', { count: calibCount })}
           </Text>
 
           {!allCalibrated && (
             <Text style={[styles.applyHint, { color: colors.textSecondary }]}>
-              You can apply now — uncalibrated fingers use defaults.
+              {t('calibrator.partial_hint')}
             </Text>
           )}
 
@@ -476,7 +478,7 @@ export default function CalibrationManager({
                     <Text style={[styles.applyRowVal, { color: done ? '#34d399' : colors.textSecondary, opacity: done ? 1 : 0.6 }]}>
                       {done
                         ? `${fc.baseline} → ${fc.maxbend}`
-                        : `${baselines[i]} → ${maxbends[i]} (default)`}
+                        : `${baselines[i]} → ${maxbends[i]} ${t('calibrator.default_suffix')}`}
                     </Text>
                   </View>
                 );
@@ -493,7 +495,7 @@ export default function CalibrationManager({
               onPress={applyCalibration}
             >
               <Text style={[styles.applyBtnTxt, { color: '#fff' }]}>
-                {allCalibrated ? 'Apply All' : `Apply ${calibCount} Finger${calibCount > 1 ? 's' : ''}`}
+                {allCalibrated ? t('calibrator.apply_all') : t('calibrator.apply_partial', { count: calibCount })}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -505,7 +507,7 @@ export default function CalibrationManager({
               }]}
               onPress={handleReset}
             >
-              <Text style={[styles.applyBtnTxt, { color: colors.textPrimary }]}>Reset All</Text>
+              <Text style={[styles.applyBtnTxt, { color: colors.textPrimary }]}>{t('calibrator.reset_all')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -515,9 +517,9 @@ export default function CalibrationManager({
       {isCalibrated && !anyCalibrated && (
         <View style={[styles.summaryTable, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
           <View style={styles.summaryHeaderRow}>
-            <Text style={[styles.summaryHeader, { color: colors.textSecondary }]}>Finger</Text>
-            <Text style={[styles.summaryHeader, { color: '#34d399' }]}>Straight</Text>
-            <Text style={[styles.summaryHeader, { color: '#fb923c' }]}>Bent</Text>
+            <Text style={[styles.summaryHeader, { color: colors.textSecondary }]}>{t('calibrator.col_finger')}</Text>
+            <Text style={[styles.summaryHeader, { color: '#34d399' }]}>{t('calibrator.col_straight')}</Text>
+            <Text style={[styles.summaryHeader, { color: '#fb923c' }]}>{t('calibrator.col_bent')}</Text>
           </View>
           {FINGER_NAMES.map((name, i) => (
             <View key={name} style={styles.summaryRow}>

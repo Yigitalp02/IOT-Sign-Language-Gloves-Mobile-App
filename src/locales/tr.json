@@ -3,7 +3,8 @@
         "title": "IoT İşaret Dili",
         "subtitle": "ASL Tanıma Sistemi",
         "footer": "Makine öğrenimi ve sensör eldiven teknolojisi ile gerçek zamanlı Amerikan İşaret Dili tanıma.",
-        "version": "Sürüm 0.4.0 | Bilgisayar Mühendisliği Bitirme Projesi | Yiğit Alp Bilgin"
+        "version": "Sürüm 1.0.0 | Bilgisayar Mühendisliği Bitirme Projesi | Yiğit Alp Bilgin",
+        "asl_recognition": "ASL Tanıma"
     },
     "input": {
         "label": "Konuşulacak metni girin:",
@@ -32,12 +33,30 @@
         "disconnected_title": "Cihaz Bağlantısı Kesildi",
         "disconnected_message": "Eldiven bağlantısı başarıyla kesildi",
         "error_title": "Bağlantı Hatası",
-        "error_message": "Cihaza bağlanılamadı. Lütfen tekrar deneyin."
+        "error_message": "Cihaza bağlanılamadı. Lütfen tekrar deneyin.",
+        "wifi_title": "WiFi Bağlantısı",
+        "paused": "Duraklatıldı",
+        "connecting": "Bağlanıyor...",
+        "host_label": "Sunucu",
+        "port_label": "Port",
+        "resume": "▶ Devam Et",
+        "pause": "⏸ Duraklat",
+        "disconnect_btn": "Bağlantıyı Kes",
+        "connect_btn": "Bağlan",
+        "paused_banner": "⏸ Duraklatıldı — eldiven bağlı ancak veri iletimi durduruldu",
+        "wifi_hint_line1": "Eldiven ve telefon aynı WiFi ağında olmalıdır.",
+        "wifi_hint_line2": "glove.local çözümlenmezse eldiven IP adresini girin.",
+        "live_log_title": "Canlı Seri Günlük",
+        "live_log_empty": "Henüz veri yok — ESP32 akışı bekleniyor…",
+        "log_lines": "{{count}} satır",
+        "log_waiting": "bekleniyor…"
     },
     "simulator": {
         "title": "ASL Simülatörü",
         "description": "Sensör verisi simüle etmek için bir harf seçin",
-        "simulating": "Simüle ediliyor"
+        "simulating": "Simüle ediliyor",
+        "continuous_mode": "sürekli mod",
+        "sample_count": "{{count}}/200"
     },
     "prediction": {
         "analyzing": "Analiz ediliyor",
@@ -45,7 +64,15 @@
         "confidence": "Güven",
         "samples": "Örnek",
         "time": "Süre",
-        "model": "Model"
+        "model": "Model",
+        "live": "CANLI",
+        "letters_detected_one": "{{count}} harf algılandı",
+        "letters_detected_other": "{{count}} harf algılandı",
+        "speak": "Seslendir",
+        "delete": "Sil",
+        "clear": "Temizle",
+        "last_letter": "Son harf:",
+        "confidence_label": "Güven:"
     },
     "history": {
         "title": "Son Tahminler",
@@ -65,5 +92,107 @@
         "success_tr": "Başarıyla Türkçe konuşuldu",
         "success_en": "Başarıyla İngilizce konuşuldu",
         "error_empty": "Hata: Lütfen konuşulacak bir metin girin."
+    },
+    "recognition": {
+        "label": "Tanıma Modu:",
+        "single": "Tek Harf",
+        "single_desc": "50 örneklik kayan pencere",
+        "continuous": "Sürekli Kelimeler",
+        "continuous_desc": "Kararlı algılama (~800ms)"
+    },
+    "sensor": {
+        "title": "Gerçek Zamanlı Sensör Değerleri",
+        "no_data": "Henüz sensör verisi yok…",
+        "imu_title": "IMU Kuaterniyon",
+        "raw_log_title": "Ham Veri Günlüğü",
+        "log_lines": "{{count}} satır",
+        "legend_straight": "Düz (tam dolu)",
+        "legend_partial": "Kısmi",
+        "legend_bent": "Bükülü (boş)"
+    },
+    "debug": {
+        "title": "Hata Ayıklama Günlüğü",
+        "simulation": "SİMÜLASYON",
+        "duration": "Süre:",
+        "samples": "Örnek:",
+        "first": "İlk:",
+        "last": "Son:",
+        "api_call": "API ÇAĞRISI",
+        "endpoint": "Uç Nokta:",
+        "round_trip": "Gidiş-Dönüş:",
+        "server_processing": "Sunucu İşleme:",
+        "model": "Model:",
+        "prediction_section": "TAHMİN",
+        "letter": "Harf:",
+        "confidence": "Güven:",
+        "top5": "İLK 5 ADAY",
+        "error": "HATA"
+    },
+    "calibrator": {
+        "title": "Sensör Kalibratörü",
+        "per_finger_desc": "Her parmağı ayrı ayrı kalibre edin",
+        "full_hand_desc": "Tüm parmakları aynı anda kalibre edin",
+        "per_finger_btn": "☝️ Tek Parmak",
+        "full_hand_btn": "✋ Tam El",
+        "calibrated": "Kalibre Edildi",
+        "not_calibrated": "Kalibre Edilmedi",
+        "calibrating_all": "Kalibre ediliyor: Tüm Parmaklar",
+        "calibrating_finger": "Kalibre ediliyor: {{finger}}",
+        "redo": "Tekrar Yap",
+        "reset_all": "Tümünü Sıfırla",
+        "step1_all_title": "Adım 1 — Tüm Parmakları Düzleştirin",
+        "step1_finger_title": "Adım 1 — {{finger}} Düzleştirin",
+        "step1_all_hint": "Elinizi düz tutun, tüm parmaklar tamamen uzatılmış",
+        "step1_finger_hint": "{{finger}} tamamen düz tutun",
+        "step2_all_title": "Adım 2 — Tüm Parmakları Bükin",
+        "step2_finger_title": "Adım 2 — {{finger}} Bükin",
+        "step2_all_hint": "Yumruk yapın, tüm parmaklar tamamen kıvrılmış",
+        "step2_finger_hint": "{{finger}} tamamen bükün",
+        "record": "Kaydet",
+        "finger_calibrated": "{{finger}} kalibre edildi ✓",
+        "straight_value": "Düz:",
+        "bent_value": "Bükülü:",
+        "all_calibrated": "Tüm parmaklar kalibre edildi ✓",
+        "all_fingers_title": "Tüm Parmaklar Kalibre Edildi",
+        "partial_title": "{{count}}/5 Parmak Kalibre Edildi",
+        "partial_hint": "Şimdi uygulayabilirsiniz — kalibre edilmemiş parmaklar varsayılanları kullanır.",
+        "apply_all": "Tümünü Uygula",
+        "apply_partial": "{{count}} Parmağı Uygula",
+        "default_suffix": "(varsayılan)",
+        "col_finger": "Parmak",
+        "col_straight": "Düz",
+        "col_bent": "Bükülü"
+    },
+    "twin": {
+        "title": "3D Dijital İkiz",
+        "subtitle": "Unity WebGL · Canlı El Pozu",
+        "local_mode": "📱 Yerel (Dahili)",
+        "remote_mode": "🌐 Uzak (Masaüstü)",
+        "local_hint": "Uygulamaya dahil WebGL derlemesini kullanır.\nÇevrimdışı çalışır — masaüstü gerekmez.",
+        "remote_hint": "WiFi üzerinden masaüstü uygulamasının WebGL sunucusuna bağlanın.",
+        "load": "3D İkizi Yükle",
+        "recalibrate": "📍 Yeniden Kalibre Et",
+        "unload": "İkizi Kaldır",
+        "loading": "Unity WebGL yükleniyor…\nBu 15–30 saniye sürebilir.",
+        "hide": "🖼️ 3D İkizi Gizle",
+        "show": "🖼️ 3D Dijital İkiz",
+        "lock_position": "🔓 Konum",
+        "position_locked": "📍 Kilitli"
+    },
+    "quick_demo": {
+        "title": "Hızlı Demo Modu",
+        "description": "Hoca sunumları için kelime otomatik simülasyonu",
+        "running": "Demo Çalışıyor... ({{index}}. Harf)",
+        "enter_word": "Kelime Girin:",
+        "placeholder": "Kelimeyi buraya yazın...",
+        "available_letters": "Kullanılabilir harfler: A B C D E F I K O S T U V W X Y",
+        "go": "GİT"
+    },
+    "fingers": {
+        "thumb": "Başparmak",
+        "index": "İşaret",
+        "middle": "Orta",
+        "ring": "Yüzük",
+        "pinky": "Serçe"
     }
 }

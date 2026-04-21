@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import WebView from 'react-native-webview';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
 import {
   startWebGLServer,
@@ -42,6 +43,7 @@ type Mode = 'local' | 'remote';
 // ── Component ─────────────────────────────────────────────────────────────────
 const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
   ({ onClose, onRecalibrate }, ref) => {
+    const { t } = useTranslation();
     const { colors } = useTheme();
     const webViewRef = useRef<WebView>(null);
 
@@ -111,9 +113,9 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.title, { color: colors.textPrimary }]}>3D Digital Twin</Text>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>{t('twin.title')}</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Unity WebGL · Live Hand Pose
+              {t('twin.subtitle')}
             </Text>
           </View>
           {onClose && (
@@ -131,7 +133,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
               onPress={() => setMode('local')}
             >
               <Text style={[styles.tabTxt, { color: mode === 'local' ? colors.accentText : colors.textSecondary }]}>
-                📱 Local (Bundled)
+                {t('twin.local_mode')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -139,7 +141,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
               onPress={() => setMode('remote')}
             >
               <Text style={[styles.tabTxt, { color: mode === 'remote' ? colors.accentText : colors.textSecondary }]}>
-                🌐 Remote (Desktop)
+                {t('twin.remote_mode')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -148,8 +150,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
         {/* Mode description / remote URL input */}
         {!loaded && mode === 'local' && (
           <Text style={[styles.hint, { color: colors.textSecondary }]}>
-            Uses the WebGL build bundled inside the app.{'\n'}
-            Works offline — no desktop required.
+            {t('twin.local_hint')}
           </Text>
         )}
 
@@ -172,7 +173,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
               />
             </View>
             <Text style={[styles.hint, { color: colors.textSecondary }]}>
-              Connect to the desktop app's WebGL server over WiFi.
+              {t('twin.remote_hint')}
             </Text>
           </>
         )}
@@ -194,7 +195,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
             {preparing ? (
               <ActivityIndicator color={colors.accentText} size="small" />
             ) : (
-              <Text style={[styles.btnTxt, { color: colors.accentText }]}>Load 3D Twin</Text>
+              <Text style={[styles.btnTxt, { color: colors.accentText }]}>{t('twin.load')}</Text>
             )}
           </TouchableOpacity>
         ) : (
@@ -210,7 +211,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
               onPress={onRecalibrate}
               title="Set the current hand orientation as the new neutral position"
             >
-              <Text style={[styles.btnTxt, { color: '#818cf8', fontSize: 13 }]}>📍 Re-calibrate</Text>
+              <Text style={[styles.btnTxt, { color: '#818cf8', fontSize: 13 }]}>{t('twin.recalibrate')}</Text>
             </TouchableOpacity>
 
             {/* Unload */}
@@ -222,7 +223,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
               }]}
               onPress={handleUnload}
             >
-              <Text style={[styles.btnTxt, { color: '#ef4444', fontSize: 13 }]}>Unload Twin</Text>
+              <Text style={[styles.btnTxt, { color: '#ef4444', fontSize: 13 }]}>{t('twin.unload')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -234,7 +235,7 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
               <View style={[styles.loadingOverlay, { backgroundColor: colors.bgSecondary }]}>
                 <ActivityIndicator color={colors.accentPrimary} size="large" />
                 <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-                  Loading Unity WebGL…{'\n'}This may take 15–30 seconds.
+                  {t('twin.loading')}
                 </Text>
               </View>
             )}

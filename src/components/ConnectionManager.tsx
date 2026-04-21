@@ -9,6 +9,7 @@ import {
   ScrollView,
 } from 'react-native';
 import TcpSocket from 'react-native-tcp-socket';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
 
 const DEFAULT_HOST = 'glove.local';
@@ -43,6 +44,7 @@ export default function ConnectionManager({
   onDeviceDisconnected,
   onDataReceived,
 }: ConnectionManagerProps) {
+  const { t } = useTranslation();
   const { colors } = useTheme();
 
   const [host, setHost]               = useState(DEFAULT_HOST);
@@ -159,7 +161,7 @@ export default function ConnectionManager({
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>WiFi Connection</Text>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>{t('connection.wifi_title')}</Text>
         <View style={styles.statusRow}>
           <View style={[
             styles.dot,
@@ -180,10 +182,10 @@ export default function ConnectionManager({
             },
           ]}>
             {isConnected
-              ? (isPaused ? 'Paused' : `${host.trim()}:${port}`)
+              ? (isPaused ? t('connection.paused') : `${host.trim()}:${port}`)
               : isConnecting
-              ? 'Connecting...'
-              : 'Disconnected'}
+              ? t('connection.connecting')
+              : t('connection.disconnected')}
           </Text>
         </View>
       </View>
@@ -199,7 +201,7 @@ export default function ConnectionManager({
       {!isConnected && (
         <View style={styles.inputRow}>
           <View style={styles.hostField}>
-            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Host</Text>
+            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>{t('connection.host_label')}</Text>
             <TextInput
               style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.borderColor, color: colors.textPrimary }]}
               value={host}
@@ -212,7 +214,7 @@ export default function ConnectionManager({
             />
           </View>
           <View style={styles.portField}>
-            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Port</Text>
+            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>{t('connection.port_label')}</Text>
             <TextInput
               style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.borderColor, color: colors.textPrimary }]}
               value={port}
@@ -239,7 +241,7 @@ export default function ConnectionManager({
             onPress={handlePauseResume}
           >
             <Text style={[styles.buttonText, { color: isPaused ? '#fbbf24' : colors.textSecondary }]}>
-              {isPaused ? '▶ Resume' : '⏸ Pause'}
+              {isPaused ? t('connection.resume') : t('connection.pause')}
             </Text>
           </TouchableOpacity>
 
@@ -252,7 +254,7 @@ export default function ConnectionManager({
             }]}
             onPress={handleDisconnect}
           >
-            <Text style={[styles.buttonText, { color: '#ef4444' }]}>Disconnect</Text>
+            <Text style={[styles.buttonText, { color: '#ef4444' }]}>{t('connection.disconnect_btn')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -267,7 +269,7 @@ export default function ConnectionManager({
           {isConnecting ? (
             <ActivityIndicator color={colors.accentText} size="small" />
           ) : (
-            <Text style={[styles.buttonText, { color: colors.accentText }]}>Connect</Text>
+            <Text style={[styles.buttonText, { color: colors.accentText }]}>{t('connection.connect_btn')}</Text>
           )}
         </TouchableOpacity>
       )}
@@ -276,7 +278,7 @@ export default function ConnectionManager({
       {isPaused && (
         <View style={[styles.banner, { backgroundColor: 'rgba(251,191,36,0.1)', borderColor: '#fbbf24' }]}>
           <Text style={[styles.bannerTextRed, { color: '#d97706' }]}>
-            ⏸ Paused — glove connected but data forwarding is stopped
+            {t('connection.paused_banner')}
           </Text>
         </View>
       )}
@@ -284,8 +286,8 @@ export default function ConnectionManager({
       {/* Hint shown only before connecting */}
       {!isConnected && !isConnecting && (
         <Text style={[styles.hint, { color: colors.textSecondary }]}>
-          Glove and phone must be on the same WiFi network.{'\n'}
-          If <Text style={{ fontStyle: 'italic' }}>glove.local</Text> doesn't resolve, enter the glove's IP address.
+          {t('connection.wifi_hint_line1')}{'\n'}
+          {t('connection.wifi_hint_line2')}
         </Text>
       )}
 
@@ -299,10 +301,10 @@ export default function ConnectionManager({
           >
             <View style={styles.logTitleRow}>
               <View style={[styles.logDot, { backgroundColor: liveLog.length > 0 ? '#10b981' : colors.textSecondary }]} />
-              <Text style={[styles.logTitle, { color: colors.textPrimary }]}>Live Serial Log</Text>
+              <Text style={[styles.logTitle, { color: colors.textPrimary }]}>{t('connection.live_log_title')}</Text>
             </View>
             <Text style={[styles.logMeta, { color: colors.textSecondary }]}>
-              {logExpanded ? '▼' : '▶'}  {liveLog.length > 0 ? `${liveLog.length} lines` : 'waiting…'}
+              {logExpanded ? '▼' : '▶'}  {liveLog.length > 0 ? t('connection.log_lines', { count: liveLog.length }) : t('connection.log_waiting')}
             </Text>
           </TouchableOpacity>
 
@@ -315,7 +317,7 @@ export default function ConnectionManager({
             >
               {liveLog.length === 0 ? (
                 <Text style={[styles.logEmpty, { color: colors.textSecondary }]}>
-                  No data yet — waiting for ESP32 stream…
+                  {t('connection.live_log_empty')}
                 </Text>
               ) : (
                 liveLog.map((line, i) => (

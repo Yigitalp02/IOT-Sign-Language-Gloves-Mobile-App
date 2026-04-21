@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../context/ThemeContext';
-
-// ── Constants ──────────────────────────────────────────────────────────────
-const FINGER_NAMES = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 /**
@@ -32,7 +30,9 @@ interface SensorDisplayProps {
 
 // ── Component ──────────────────────────────────────────────────────────────
 const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, rawFlexSample, currentImu, rawDataLog, isActive }) => {
+  const { t } = useTranslation();
   const { colors } = useTheme();
+  const FINGER_NAMES = [t('fingers.thumb'), t('fingers.index'), t('fingers.middle'), t('fingers.ring'), t('fingers.pinky')];
   const [logExpanded, setLogExpanded] = useState(true);
 
   return (
@@ -40,12 +40,12 @@ const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, rawFlexSam
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>Real-Time Sensor Values</Text>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>{t('sensor.title')}</Text>
         <View style={[styles.statusDot, { backgroundColor: isActive ? '#10b981' : colors.textSecondary }]} />
       </View>
 
       {!currentSample || currentSample.length === 0 ? (
-        <Text style={[styles.noData, { color: colors.textSecondary }]}>No sensor data yet…</Text>
+        <Text style={[styles.noData, { color: colors.textSecondary }]}>{t('sensor.no_data')}</Text>
       ) : (
         <View style={styles.rows}>
           {currentSample.map((value, i) => {
@@ -83,7 +83,7 @@ const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, rawFlexSam
       {/* IMU Quaternion */}
       {currentImu && (
         <View style={[styles.imuSection, { borderTopColor: colors.borderColor }]}>
-          <Text style={[styles.imuTitle, { color: colors.textSecondary }]}>IMU Quaternion</Text>
+          <Text style={[styles.imuTitle, { color: colors.textSecondary }]}>{t('sensor.imu_title')}</Text>
           <View style={styles.imuRow}>
             {(['qw', 'qx', 'qy', 'qz'] as const).map((label, i) => (
               <View key={label} style={[styles.imuCell, { backgroundColor: colors.bgPrimary }]}>
@@ -102,10 +102,10 @@ const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, rawFlexSam
         <View style={[styles.imuSection, { borderTopColor: colors.borderColor }]}>
           <TouchableOpacity style={styles.logHeader} onPress={() => setLogExpanded(e => !e)} activeOpacity={0.7}>
             <Text style={[styles.imuTitle, { color: colors.textSecondary }]}>
-              {logExpanded ? '▼' : '▶'} Raw Data Log
+              {logExpanded ? '▼' : '▶'} {t('sensor.raw_log_title')}
             </Text>
             <Text style={[styles.imuTitle, { color: colors.textSecondary }]}>
-              {rawDataLog.length} lines
+              {t('sensor.log_lines', { count: rawDataLog.length })}
             </Text>
           </TouchableOpacity>
           {logExpanded && (
@@ -123,9 +123,9 @@ const SensorDisplay: React.FC<SensorDisplayProps> = ({ currentSample, rawFlexSam
       {/* Legend */}
       {currentSample && currentSample.length > 0 && (
         <View style={[styles.legend, { borderTopColor: colors.borderColor }]}>
-          <LegendItem color="#10b981" label="Straight (full)" />
-          <LegendItem color="#fbbf24" label="Partial" />
-          <LegendItem color="#ef4444" label="Bent (empty)" />
+          <LegendItem color="#10b981" label={t('sensor.legend_straight')} />
+          <LegendItem color="#fbbf24" label={t('sensor.legend_partial')} />
+          <LegendItem color="#ef4444" label={t('sensor.legend_bent')} />
         </View>
       )}
     </View>

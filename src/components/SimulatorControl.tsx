@@ -127,8 +127,8 @@ export default function SimulatorControl({
         <View style={[styles.status, { backgroundColor: colors.accentPrimary + '20', borderColor: colors.accentPrimary }]}>
           <Text style={[styles.statusText, { color: colors.accentPrimary }]}>
             {isContinuousMode 
-              ? `${t('simulator.simulating')}: ${selectedLetter} (continuous mode)`
-              : `${t('simulator.simulating')}: ${selectedLetter} (${sampleCount}/200)`
+              ? `${t('simulator.simulating')}: ${selectedLetter} (${t('simulator.continuous_mode')})`
+              : `${t('simulator.simulating')}: ${selectedLetter} (${t('simulator.sample_count', { count: sampleCount })})`
             }
           </Text>
         </View>
