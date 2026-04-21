@@ -1,10 +1,10 @@
 # Google Play Store Listing — IoT Sign Language
 
 ## App Name
-IoT Sign Language
+IoT Sign Language Glove
 
 ## Short Description (80 chars max)
-Real-time ASL sign language recognition using a smart sensor glove and ML
+ASL recognition app for the IoT sensor glove — requires physical hardware
 
 ## Full Description (4000 chars max)
 IoT Sign Language is a Computer Science graduation project that recognizes American Sign Language (ASL) letters in real time using a custom smart glove equipped with flex sensors and a BNO055 IMU sensor.
