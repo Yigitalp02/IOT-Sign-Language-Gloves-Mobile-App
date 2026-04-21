@@ -4,11 +4,13 @@
   },
   "build": {
     "production": {
+      "node": "22.14.0",
       "android": {
         "buildType": "app-bundle"
       }
     },
     "preview": {
+      "node": "22.14.0",
       "android": {
         "buildType": "apk"
       }
