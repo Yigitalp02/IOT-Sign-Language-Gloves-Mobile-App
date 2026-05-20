@@ -27,7 +27,7 @@ function parseSensorLine(line: string): number[] | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   const parts = trimmed.split(',');
-  if (parts.length !== 5 && parts.length !== 9 && parts.length !== 15) return null;
+  if (parts.length !== 5 && parts.length !== 9 && parts.length !== 15 && parts.length !== 23) return null;
   const values = parts.map(Number);
   if (values.some(isNaN)) return null;
   return values;

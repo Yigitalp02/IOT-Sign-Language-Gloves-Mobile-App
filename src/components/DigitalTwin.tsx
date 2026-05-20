@@ -30,6 +30,7 @@ export interface DigitalTwinRef {
     rawQuat?: { w: number; x: number; y: number; z: number } | null,
     motion?: { lx: number; ly: number; lz: number } | null,
     gyro?: { gx: number; gy: number; gz: number } | null,
+    handPosition?: { x: number; y: number; z: number } | null,
   ) => void;
 }
 
@@ -59,12 +60,13 @@ const DigitalTwin = forwardRef<DigitalTwinRef, DigitalTwinProps>(
 
     // ── Expose sendSensorData ─────────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
-      sendSensorData: (flex, imu, rawQuat, motion, gyro) => {
+      sendSensorData: (flex, imu, rawQuat, motion, gyro, handPosition) => {
         if (!loaded || !webViewRef.current) return;
         const packet: Record<string, unknown> = { type: 'sensorData', flex, imu };
-        if (rawQuat) packet.rawQuat = rawQuat;
-        if (motion)  packet.motion  = motion;
-        if (gyro)    packet.gyro    = gyro;
+        if (rawQuat)      packet.rawQuat      = rawQuat;
+        if (motion)       packet.motion       = motion;
+        if (gyro)         packet.gyro         = gyro;
+        if (handPosition) packet.handPosition = handPosition;
         const payload = JSON.stringify(packet);
         // react-native-webview intercepts window.postMessage and routes it to
         // onMessage (React Native side) instead of Unity's window event listener.

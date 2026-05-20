@@ -18,8 +18,57 @@ const qMult = (a: Quat, b: Quat): Quat => ({
   z: a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
 });
 const qInv = (q: Quat): Quat => ({ w: q.w, x: -q.x, y: -q.y, z: -q.z });
+type Vec3 = { x: number; y: number; z: number };
+const rotateVec = (q: Quat, v: Vec3): Vec3 => {
+  const r = qMult(qMult(q, { w: 0, x: v.x, y: v.y, z: v.z }), qInv(q));
+  return { x: r.x, y: r.y, z: r.z };
+};
+// Remap BNO055 absolute quaternion (ENU: X=East, Y=North, Z=Up) → Unity world space
+const remapBnoToUnity = (q: Quat): Quat => ({ w: q.w, x: q.x, y: q.z, z: -q.y });
+
+// ── Arm FK ────────────────────────────────────────────────────────────────────
+const UPPER_ARM_LEN = 0.355;
+const FOREARM_LEN   = 0.280;
+const NEUTRAL_ARM_Y = -(UPPER_ARM_LEN + FOREARM_LEN);
+
+const computeArmFK = (
+  q1: Quat, q2: Quat,
+  neutral1: Quat, neutral2: Quat,
+  forward1?: Quat,
+): Vec3 => {
+  const q1u = remapBnoToUnity(q1);
+  const q2u = remapBnoToUnity(q2);
+  const n1u = remapBnoToUnity(neutral1);
+  const n2u = remapBnoToUnity(neutral2);
+  const q1Rel = qMult(q1u, qInv(n1u));
+  const q2Rel = qMult(q2u, qInv(n2u));
+  const upperArmVec = rotateVec(q1Rel, { x: 0, y: -UPPER_ARM_LEN, z: 0 });
+  const forearmVec  = rotateVec(q2Rel, { x: 0, y: -FOREARM_LEN,   z: 0 });
+
+  let qHeadingCorr: Quat = { w: 1, x: 0, y: 0, z: 0 };
+  if (forward1) {
+    const f1u    = remapBnoToUnity(forward1);
+    const fwdDir = rotateVec(qMult(f1u, qInv(n1u)), { x: 0, y: -1, z: 0 });
+    const fwdMag = Math.sqrt(fwdDir.x * fwdDir.x + fwdDir.z * fwdDir.z);
+    if (fwdMag > 0.1) {
+      const angle = Math.atan2(fwdDir.x, fwdDir.z);
+      const s = Math.sin(-angle / 2);
+      const c = Math.cos(-angle / 2);
+      qHeadingCorr = { w: c, x: 0, y: s, z: 0 };
+    }
+  }
+  const uAV = rotateVec(qHeadingCorr, upperArmVec);
+  const fAV  = rotateVec(qHeadingCorr, forearmVec);
+  return {
+    x:  uAV.x + fAV.x,
+    y: (uAV.y + fAV.y) - NEUTRAL_ARM_Y,
+    z:  uAV.z + fAV.z,
+  };
+};
+
 const TWIN_EMA_ALPHA = 0.25; // EMA smoothing (0=frozen, 1=raw)
 import CalibrationManager from './src/components/CalibrationManager';
+import ArmbandCalibrator, { ArmbandCalibration, EMPTY_ARMBAND_CAL } from './src/components/ArmbandCalibrator';
 import SimulatorControl from './src/components/SimulatorControl';
 import { normalizeSample, isRawThermistorData, DEFAULT_BASELINES, DEFAULT_MAXBENDS } from './src/utils/normalization';
 import PredictionView from './src/components/PredictionView';
@@ -71,6 +120,8 @@ function AppContent() {
   const [currentImu, setCurrentImu] = useState<[number, number, number, number] | null>(null);
   const currentImuRef = React.useRef<[number, number, number, number] | null>(null);
   const currentMotionRef = React.useRef<{ lx: number; ly: number; lz: number; gx: number; gy: number; gz: number } | null>(null);
+  // Arm IMU: Q1 (upper arm) + Q2 (forearm) from armbands via ESP-NOW (23-col firmware)
+  const currentArmImuRef = React.useRef<{ q1: Quat; q2: Quat } | null>(null);
   const lastDisplayUpdateRef = React.useRef(0);
   // Raw data log — last 10 lines, throttled to ~5 fps
   const [rawDataLog, setRawDataLog] = useState<string[]>([]);
@@ -86,6 +137,10 @@ function AppContent() {
   // finger flex + wrist orientation without translating in 3D space.
   const [lockSpatial, setLockSpatial]   = useState(false);
   const lockSpatialRef                  = useRef(false);
+  // Armband calibration (3-pose reference capture for FK)
+  const [armbandCal, setArmbandCal] = React.useState<ArmbandCalibration>(EMPTY_ARMBAND_CAL);
+  const armbandCalRef = useRef<ArmbandCalibration>(EMPTY_ARMBAND_CAL);
+  React.useEffect(() => { armbandCalRef.current = armbandCal; }, [armbandCal]);
   // Auto-range: tracks per-finger min/max seen in the session so the twin
   // can show movement even before the user runs formal calibration.
   // Convention: higher ADC value = finger straight (same as normalization.ts).
@@ -373,6 +428,13 @@ function AppContent() {
         gx: data[12], gy: data[13], gz: data[14],
       };
     }
+    // 23-column armband packet: Q1 (upper arm cols 15-18) + Q2 (forearm cols 19-22)
+    if (data.length >= 23) {
+      currentArmImuRef.current = {
+        q1: { w: data[15], x: data[16], y: data[17], z: data[18] },
+        q2: { w: data[19], x: data[20], y: data[21], z: data[22] },
+      };
+    }
 
     // ── Raw data log (throttled ~5 fps) ───────────────────────────────────────
     const nowLog = Date.now();
@@ -445,7 +507,7 @@ function AppContent() {
           rawQuatPayload = { w: imuRaw[0], x: imuRaw[1], y: imuRaw[2], z: imuRaw[3] };
         }
 
-        const motionRaw = lockSpatialRef.current ? null : currentMotionRef.current;
+        const motionRaw = currentMotionRef.current;
         const motionPayload = motionRaw
           ? { lx: motionRaw.lx, ly: motionRaw.ly, lz: motionRaw.lz }
           : null;
@@ -453,7 +515,17 @@ function AppContent() {
           ? { gx: motionRaw.gx, gy: motionRaw.gy, gz: motionRaw.gz }
           : null;
 
-        digitalTwinRef.current.sendSensorData(normalizedFlex, imuXYZ, rawQuatPayload, motionPayload, gyroPayload);
+        // Arm FK: compute wrist delta only when armband calibration is available
+        const arm = currentArmImuRef.current;
+        const cal = armbandCalRef.current;
+        const fkDelta = (arm && cal.neutral)
+          ? computeArmFK(arm.q1, arm.q2, cal.neutral.q1, cal.neutral.q2, cal.forward?.q1 ?? undefined)
+          : null;
+        const handPositionPayload = fkDelta
+          ? { x: fkDelta.x * 3, y: fkDelta.y * 3, z: -fkDelta.z * 3 }
+          : null;
+
+        digitalTwinRef.current.sendSensorData(normalizedFlex, imuXYZ, rawQuatPayload, motionPayload, gyroPayload, handPositionPayload);
       }
     }
 
@@ -527,6 +599,7 @@ function AppContent() {
     lastHapticLetterRef.current  = '';
     currentImuRef.current        = null;
     currentMotionRef.current     = null;
+    currentArmImuRef.current     = null;
     setCurrentImu(null);
     setRawFlexSample(null);
     setRawDataLog([]);
@@ -585,11 +658,12 @@ function AppContent() {
                 stablePredRef.current       = { letter: '', count: 0 };
                 letterUsedRef.current       = false;
                 lastHapticLetterRef.current = '';
-                currentImuRef.current       = null;
-                currentMotionRef.current    = null;
-                setCurrentImu(null);
-                setRawFlexSample(null);
-                setRawDataLog([]);
+              currentImuRef.current       = null;
+              currentMotionRef.current    = null;
+              currentArmImuRef.current    = null;
+              setCurrentImu(null);
+              setRawFlexSample(null);
+              setRawDataLog([]);
                 twinRefQuatRef.current      = null;
                 twinEmaRef.current          = null;
                 twinAutoRangeRef.current    = null;
@@ -673,6 +747,16 @@ function AppContent() {
                 setIsCalibrated(false);
               }}
             />
+
+            {/* Armband calibration — 3-pose reference capture for FK position tracking */}
+            {connectedDevice !== null && (
+              <ArmbandCalibrator
+                currentArmImu={currentArmImuRef.current}
+                onCalibrationComplete={(cal) => {
+                  setArmbandCal(cal);
+                }}
+              />
+            )}
 
             {/* Mode Selector */}
             <View style={[styles.modeSelector, { backgroundColor: colors.bgSecondary, borderColor: colors.borderColor }]}>
